@@ -1204,19 +1204,29 @@ function updateGame(dt){
   });
   if(b.x-b.r<FX){
     if(b.y>gY1&&b.y<gY2){
-      g.scoreB++;document.getElementById('score-bot').textContent=g.scoreB;
-      showGoal('BOT GOAL!','var(--red)');
-      if(multiMode&&isHost&&socket)socket.send(JSON.stringify({type:'GOAL',team:1}));
-      startGoalReset(g);
+      if(multiMode&&isHost&&socket){
+        // En multi : l'hôte envoie au serveur, qui rebroadcast le GOAL à tous (y compris l'hôte)
+        // Le score et le reset seront gérés dans handleServerMsg → pas de double-reset
+        socket.send(JSON.stringify({type:'GOAL',team:1}));
+        resetBall(g); // reset balle immédiatement côté hôte pour éviter multi-détection
+      } else if(!multiMode){
+        g.scoreB++;document.getElementById('score-bot').textContent=g.scoreB;
+        showGoal('BOT GOAL!','var(--red)');
+        startGoalReset(g);
+      }
     }
     else{b.x=FX+b.r;b.vx=Math.abs(b.vx)*BNC;}
   }
   if(b.x+b.r>FX+FW){
     if(b.y>gY1&&b.y<gY2){
-      g.scoreP++;document.getElementById('score-player').textContent=g.scoreP;
-      showGoal('BUT !','var(--accent)');
-      if(multiMode&&isHost&&socket)socket.send(JSON.stringify({type:'GOAL',team:0}));
-      startGoalReset(g);
+      if(multiMode&&isHost&&socket){
+        socket.send(JSON.stringify({type:'GOAL',team:0}));
+        resetBall(g);
+      } else if(!multiMode){
+        g.scoreP++;document.getElementById('score-player').textContent=g.scoreP;
+        showGoal('BUT !','var(--accent)');
+        startGoalReset(g);
+      }
     }
     else{b.x=FX+FW-b.r;b.vx=-Math.abs(b.vx)*BNC;}
   }
@@ -1453,18 +1463,21 @@ function renderGame(){
 
 function drawGameCar(ctx,car,c1,c2,wSpin,isPlayer){
   const {x,y,w,h,angle}=car;
-  const model=isPlayer?S.car.model:(car.model||0);
+  // isPlayer → S.car.model ; joueur distant → car.model transmis par le réseau
+  const model = isPlayer ? S.car.model : (car.model ?? 0);
+  // Le style de roue est géré dans chaque drawXxx via isPlayer ou car.wheelStyle
   ctx.save();ctx.translate(x,y);ctx.rotate(angle);
   // Shadow
   ctx.globalAlpha=.28;ctx.beginPath();ctx.ellipse(0,h*.56,w*.45,h*.12,0,0,Math.PI*2);ctx.fillStyle='#000';ctx.fill();ctx.globalAlpha=1;
-  if(model===0) drawOctane(ctx,w,h,c1,c2,wSpin,isPlayer);
-  else if(model===1) drawFennec(ctx,w,h,c1,c2,wSpin,isPlayer);
-  else drawDominus(ctx,w,h,c1,c2,wSpin,isPlayer);
+  if(model===0) drawOctane(ctx,w,h,c1,c2,wSpin,isPlayer,car.wheelStyle);
+  else if(model===1) drawFennec(ctx,w,h,c1,c2,wSpin,isPlayer,car.wheelStyle);
+  else drawDominus(ctx,w,h,c1,c2,wSpin,isPlayer,car.wheelStyle);
   ctx.restore();
 }
 
 // OCTANE - muscle car compact, toit arrondi
-function drawOctane(ctx,w,h,c1,c2,wSpin,isPlayer){
+function drawOctane(ctx,w,h,c1,c2,wSpin,isPlayer,remoteWheelStyle){
+  const wst = isPlayer ? S.car.wheel : (remoteWheelStyle ?? 0);
   ctx.fillStyle=c1;
   ctx.beginPath();ctx.moveTo(-w*.48,-h*.1);ctx.lineTo(w*.48,-h*.18);ctx.lineTo(w*.5,h*.32);ctx.lineTo(-w*.5,h*.32);ctx.closePath();ctx.fill();
   // Toit rond bombé
@@ -1481,12 +1494,13 @@ function drawOctane(ctx,w,h,c1,c2,wSpin,isPlayer){
   ctx.fillStyle='rgba(255,240,120,.95)';ctx.beginPath();ctx.ellipse(w*.44,h*.06,w*.04,h*.08,0,0,Math.PI*2);ctx.fill();
   ctx.fillStyle='rgba(255,60,60,.88)';ctx.beginPath();ctx.ellipse(-w*.44,h*.06,w*.04,h*.08,0,0,Math.PI*2);ctx.fill();
   // Roues
-  const wr=h*.24,wst=isPlayer?S.car.wheel:0;
+  const wr=h*.24;
   drawWheel(ctx,-w*.32,h*.38,wr,wst,c2,wSpin);drawWheel(ctx,w*.32,h*.38,wr,wst,c2,wSpin);
 }
 
 // FENNEC - voiture ronde et compacte, style kart
-function drawFennec(ctx,w,h,c1,c2,wSpin,isPlayer){
+function drawFennec(ctx,w,h,c1,c2,wSpin,isPlayer,remoteWheelStyle){
+  const wst = isPlayer ? S.car.wheel : (remoteWheelStyle ?? 0);
   // Carrosserie très arrondie
   ctx.fillStyle=c1;
   ctx.beginPath();
@@ -1511,12 +1525,13 @@ function drawFennec(ctx,w,h,c1,c2,wSpin,isPlayer){
   ctx.fillStyle='rgba(255,250,150,.95)';ctx.beginPath();ctx.arc(w*.42,h*.05,w*.06,0,Math.PI*2);ctx.fill();
   ctx.fillStyle='rgba(255,50,50,.88)';ctx.beginPath();ctx.arc(-w*.42,h*.05,w*.06,0,Math.PI*2);ctx.fill();
   // Roues larges
-  const wr=h*.27,wst=isPlayer?S.car.wheel:0;
+  const wr=h*.27;
   drawWheel(ctx,-w*.34,h*.36,wr,wst,c2,wSpin);drawWheel(ctx,w*.34,h*.36,wr,wst,c2,wSpin);
 }
 
 // DOMINUS - voiture plate et longue, style F1/supercar
-function drawDominus(ctx,w,h,c1,c2,wSpin,isPlayer){
+function drawDominus(ctx,w,h,c1,c2,wSpin,isPlayer,remoteWheelStyle){
+  const wst = isPlayer ? S.car.wheel : (remoteWheelStyle ?? 0);
   // Carrosserie très plate et allongée
   ctx.fillStyle=c1;
   ctx.beginPath();ctx.moveTo(-w*.5,h*.28);ctx.lineTo(w*.5,h*.22);ctx.lineTo(w*.52,-h*.02);ctx.lineTo(w*.35,-h*.08);ctx.lineTo(-w*.1,-h*.28);ctx.lineTo(-w*.42,-h*.12);ctx.lineTo(-w*.52,h*.02);ctx.closePath();ctx.fill();
@@ -1539,7 +1554,7 @@ function drawDominus(ctx,w,h,c1,c2,wSpin,isPlayer){
   ctx.fillStyle='rgba(255,245,100,.95)';ctx.fillRect(w*.44,-h*.01,w*.08,h*.05);
   ctx.fillStyle='rgba(255,40,40,.9)';ctx.fillRect(-w*.52,-h*.01,w*.08,h*.05);
   // Roues fines
-  const wr=h*.2,wst=isPlayer?S.car.wheel:0;
+  const wr=h*.2;
   drawWheel(ctx,-w*.3,h*.35,wr,wst,c2,wSpin);drawWheel(ctx,w*.35,h*.35,wr,wst,c2,wSpin);
 }
 
@@ -1716,7 +1731,8 @@ function handleServerMsg(msg) {
       document.getElementById('score-player').textContent = msg.scoreA;
       document.getElementById('score-bot').textContent = msg.scoreB;
       showGoal(msg.team === 0 ? 'BUT ! 🎉' : 'ADVERSAIRE !', msg.team === 0 ? 'var(--accent)' : 'var(--red)');
-      if (!isHost) startGoalReset(game);
+      // Tous les joueurs (hôte ET non-hôte) doivent reset après un but
+      startGoalReset(game);
     }
   }
 
@@ -1786,6 +1802,9 @@ function sendPlayerUpdate() {
     angle: game.player.angle,
     vx: game.player.vx, vy: game.player.vy,
     c1: S.car.c1, c2: S.car.c2,
+    model: S.car.model,
+    decal: S.car.decal,
+    wheelStyle: S.car.wheel,
     team: myTeam, name: S.playerName
   }));
 }
@@ -1796,11 +1815,18 @@ function drawRemotePlayers(ctx) {
     if (!rp || rp.x === undefined) return;
     const c1 = rp.c1 || (rp.team === 1 ? '#cc2200' : '#00b4ff');
     const c2 = rp.c2 || '#ffffff';
-    drawGameCar(ctx, {
-      x: rp.x, y: rp.y, angle: rp.angle,
+    // Spin de roue propre à chaque joueur distant
+    if (rp._wSpin === undefined) rp._wSpin = 0;
+    const spd = Math.sqrt((rp.vx||0)**2 + (rp.vy||0)**2);
+    rp._wSpin += spd * 0.0008;
+    const carObj = {
+      x: rp.x, y: rp.y, angle: rp.angle || 0,
       w: game.CW, h: game.CH,
-      trail: [], vx: rp.vx || 0, vy: rp.vy || 0, model: 0
-    }, c1, c2, game.wSpin, false);
+      trail: [], vx: rp.vx || 0, vy: rp.vy || 0,
+      model: rp.model ?? 0,
+      wheelStyle: rp.wheelStyle ?? 0,
+    };
+    drawGameCar(ctx, carObj, c1, c2, rp._wSpin, false);
     // Nametag au-dessus du joueur
     if (rp.name) {
       ctx.save();
@@ -1817,10 +1843,12 @@ function drawRemotePlayers(ctx) {
 }
 
 // Collision ballon avec joueurs distants (côté hôte seulement)
+// Les vx/vy reçus du réseau sont en px/sec (identique à game.player.vx)
 function collideRemotePlayersWithBall() {
   if (!isHost) return;
   Object.values(remotePlayers).forEach(rp => {
     if (!rp || rp.x === undefined) return;
+    // ballCollide divise vx/vy par 60 → on passe telles quelles (px/sec)
     const fakecar = {x: rp.x, y: rp.y, vx: (rp.vx||0), vy: (rp.vy||0), w: game.CW, h: game.CH};
     ballCollide(fakecar, game.ball);
   });
