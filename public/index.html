@@ -1031,7 +1031,7 @@ function startGame(){
     document.getElementById('hud-team-b').textContent='BOTS';
   }
   game=createGame(cvs);
-  if (multiMode) startInputLoop();
+  if(multiMode)startInputLoop();
   startCountdown();
 }
 
@@ -1049,8 +1049,7 @@ function createGame(cvs){
     scoreP:0,scoreB:0,timeLeft:S.time,lastTime:0,wSpin:0,
     ball:{x:FX+FW/2,y:FY+FH/2,vx:(Math.random()-.5)*4,vy:(Math.random()-.5)*4,r:BR,spin:0},
     player:{x:multiMode?(myTeam===0?FX+FW*.22:FX+FW*.78):FX+FW*.22,y:FY+FH/2,vx:0,vy:0,w:CW,h:CH,boost:.8,angle:myTeam===1?Math.PI:0,trail:[]},
-    bots:[],_keys:{},
-    remotePlayers:{},
+    bots:[],_keys:{},remotePlayers:{},
     particles:mkParticles(theme.particles,20,W,H,FX,FY,FW,FH),
     gFlash:0,gColor:'#fff',animFrame:null,
   };
@@ -1086,35 +1085,43 @@ function updateGame(dt){
   if(!g._lastHUDSec||Math.floor(g.timeLeft)!==g._lastHUDSec){g._lastHUDSec=Math.floor(g.timeLeft);updateTimerHUD();}
 
   const p=g.player;
-  const bsting=g._keys[S.keys.boost]&&p.boost>0;
-  // En multi: vitesse calée sur le serveur (SPD_norm=0.30 * FW en pixels)
-  const baseSpd = multiMode ? g.FW * 0.30 : SPD;
-  const spd = baseSpd * (bsting ? 1.88 : 1);
-  if(bsting)p.boost=Math.max(0,p.boost-dt*.55);
-  else p.boost=Math.min(1,p.boost+dt*.18);
-
-  let ax=0,ay=0;
-  if(g._keys[S.keys.up])ay-=1;
-  if(g._keys[S.keys.down])ay+=1;
-  if(g._keys[S.keys.left])ax-=1;
-  if(g._keys[S.keys.right])ax+=1;
-  const al=Math.sqrt(ax*ax+ay*ay)||1;
-  // Accélération et friction calées sur le serveur en mode multi
-  const accelMult = multiMode ? 5.0 : 3.2;
-  const fricFrame = multiMode ? Math.pow(0.82, dt) : FRIC;
-  p.vx+=ax/al*spd*dt*accelMult; p.vy+=ay/al*spd*dt*accelMult;
-  p.vx*=fricFrame; p.vy*=fricFrame;
-  const ps2=Math.sqrt(p.vx*p.vx+p.vy*p.vy);
-  if(ps2>spd*1.22){p.vx=p.vx/ps2*spd*1.22;p.vy=p.vy/ps2*spd*1.22;}
-  if(ps2>8)p.angle=Math.atan2(p.vy,p.vx);
-  p.x+=p.vx*dt;p.y+=p.vy*dt;
-  p.x=Math.max(FX+p.w/2,Math.min(FX+FW-p.w/2,p.x));
-  p.y=Math.max(FY+p.h/2,Math.min(FY+FH-p.h/2,p.y));
-  if(bsting)p.trail.push({x:p.x,y:p.y,t:1});
-  p.trail=p.trail.filter(t=>{t.t-=dt*4;return t.t>0;});
-  document.getElementById('boost-fill').style.height=(p.boost*100)+'%';
-
-  // Wheel spin from player speed
+  let ps2=0;
+  if(!multiMode){
+    // SOLO: physique locale complète
+    const bsting=g._keys[S.keys.boost]&&p.boost>0;
+    const spd=SPD*(bsting?1.88:1);
+    if(bsting)p.boost=Math.max(0,p.boost-dt*.55);
+    else p.boost=Math.min(1,p.boost+dt*.18);
+    let ax=0,ay=0;
+    if(g._keys[S.keys.up])ay-=1;
+    if(g._keys[S.keys.down])ay+=1;
+    if(g._keys[S.keys.left])ax-=1;
+    if(g._keys[S.keys.right])ax+=1;
+    const al=Math.sqrt(ax*ax+ay*ay)||1;
+    p.vx+=ax/al*spd*dt*3.2;p.vy+=ay/al*spd*dt*3.2;
+    p.vx*=FRIC;p.vy*=FRIC;
+    ps2=Math.sqrt(p.vx*p.vx+p.vy*p.vy);
+    if(ps2>spd*1.22){p.vx=p.vx/ps2*spd*1.22;p.vy=p.vy/ps2*spd*1.22;}
+    if(ps2>8)p.angle=Math.atan2(p.vy,p.vx);
+    p.x+=p.vx*dt;p.y+=p.vy*dt;
+    p.x=Math.max(FX+p.w/2,Math.min(FX+FW-p.w/2,p.x));
+    p.y=Math.max(FY+p.h/2,Math.min(FY+FH-p.h/2,p.y));
+    if(bsting)p.trail.push({x:p.x,y:p.y,t:1});
+    p.trail=p.trail.filter(t=>{t.t-=dt*4;return t.t>0;});
+  } else {
+    // MULTI: interpolation fluide vers la position cible reçue du serveur
+    if(p._tx!==undefined){
+      const lp=1-Math.pow(0.01,dt*12); // lerp rapide
+      p.x+=(p._tx-p.x)*lp; p.y+=(p._ty-p.y)*lp;
+      // Interpolation angulaire (gère wrap 0/2π)
+      let da=p._ta-p.angle; while(da>Math.PI)da-=Math.PI*2; while(da<-Math.PI)da+=Math.PI*2;
+      p.angle+=da*lp;
+    }
+    ps2=Math.sqrt((p.vx||0)**2+(p.vy||0)**2);
+    if(p.boost>0)p.trail.push({x:p.x,y:p.y,t:1});
+    p.trail=p.trail.filter(t=>{t.t-=dt*4;return t.t>0;});
+  }
+  document.getElementById('boost-fill').style.height=((p.boost||0)*100)+'%';
   g.wSpin+=ps2*dt*.05;
 
   // BOTS AI - each has unique behavior (solo seulement)
@@ -1206,15 +1213,10 @@ function updateGame(dt){
     if(b.x-b.r<FX){b.x=FX+b.r;b.vx=Math.abs(b.vx)*BNC;}
     if(b.x+b.r>FX+FW){b.x=FX+FW-b.r;b.vx=-Math.abs(b.vx)*BNC;}
   } else {
-    // Multi: interpolation locale avec la vitesse du serveur (60fps fluide)
-    const b = g.ball;
-    if (b._svx !== undefined) {
-      b.x += b._svx * dt;
-      b.y += b._svy * dt;
-      b._svx *= 0.994; // friction locale calée sur le serveur
-      b._svy *= 0.994;
-    }
-    b.spin += Math.sqrt((b._svx||0)**2 + (b._svy||0)**2) * dt * 0.09;
+    // Multi: prédiction locale entre updates serveur → 60fps fluide
+    const b=g.ball;
+    if(b._svx!==undefined){ b.x+=b._svx*dt; b.y+=b._svy*dt; b._svx*=0.994; b._svy*=0.994; }
+    b.spin+=Math.sqrt((b._svx||0)**2+(b._svy||0)**2)*dt*.09;
   }
   updParticles(g.particles,g.theme.particles,g.W,g.H,FX,FY,FW,FH,dt);
 }
@@ -1674,20 +1676,13 @@ function handleServerMsg(msg) {
     document.getElementById('score-player').textContent = myScore;
     document.getElementById('score-bot').textContent    = oppScore;
 
-    // Balle: coordonnées normalisées → pixels locaux avec correction douce
+    // Balle: coordonnées normalisées → pixels locaux avec interpolation
     if (msg.ball) {
-      const tx = game.FX + msg.ball.x * game.FW;
-      const ty = game.FY + msg.ball.y * game.FH;
-      const dist = Math.hypot(game.ball.x - tx, game.ball.y - ty);
-      if (dist > game.BR * 6) {
-        // Téléportation si trop loin (après un reset de but)
-        game.ball.x = tx; game.ball.y = ty;
-      } else {
-        // Correction douce pour fluidité
-        game.ball.x += (tx - game.ball.x) * 0.35;
-        game.ball.y += (ty - game.ball.y) * 0.35;
-      }
-      // Stocker vitesses serveur pour interpolation locale entre updates
+      const bx = game.FX + msg.ball.x * game.FW;
+      const by = game.FY + msg.ball.y * game.FH;
+      const bd = Math.hypot(game.ball.x-bx, game.ball.y-by);
+      if (bd > game.BR*5) { game.ball.x=bx; game.ball.y=by; } // reset: téléporter
+      else { game.ball.x+=(bx-game.ball.x)*0.4; game.ball.y+=(by-game.ball.y)*0.4; }
       game.ball._svx = msg.ball.vx * game.FW;
       game.ball._svy = msg.ball.vy * game.FH;
       game.ball.vx = game.ball._svx;
@@ -1699,23 +1694,17 @@ function handleServerMsg(msg) {
     if (msg.players) {
       if (!game.remotePlayers) game.remotePlayers = {};
       msg.players.forEach(p => {
+        const px = game.FX + p.x * game.FW;
+        const py = game.FY + p.y * game.FH;
         if (p.id === myPlayerId) {
-          // Notre joueur: on utilise la physique locale (client-side prediction)
-          // Le serveur ne corrige que si on est très loin (désynchro réseau)
-          const sx = game.FX + p.x * game.FW;
-          const sy = game.FY + p.y * game.FH;
-          const pdist = Math.hypot(game.player.x - sx, game.player.y - sy);
-          if (pdist > game.CW * 2) {
-            // Désynchro trop grande: correction brutale
-            game.player.x = sx; game.player.y = sy;
-            game.player.vx = p.vx * game.FW; game.player.vy = p.vy * game.FH;
-          }
-          // Toujours syncer boost depuis serveur
+          // Stocker la cible d'interpolation (jamais téléporter)
+          if (game.player._tx === undefined) { game.player.x=px; game.player.y=py; }
+          game.player._tx = px; game.player._ty = py; game.player._ta = p.angle;
+          game.player.vx = p.vx*game.FW; game.player.vy = p.vy*game.FH;
           game.player.boost = p.boost;
         } else {
-          // Joueurs distants: stocker position normalisée pour dessin
-          if (!game.remotePlayers[p.id]) game.remotePlayers[p.id] = p;
-          else Object.assign(game.remotePlayers[p.id], p);
+          if (!game.remotePlayers[p.id]) { game.remotePlayers[p.id]={...p,_tx:px,_ty:py,_ta:p.angle}; }
+          else { Object.assign(game.remotePlayers[p.id],p); game.remotePlayers[p.id]._tx=px; game.remotePlayers[p.id]._ty=py; game.remotePlayers[p.id]._ta=p.angle; }
         }
       });
     }
@@ -1732,24 +1721,22 @@ function handleServerMsg(msg) {
     document.getElementById('score-bot').textContent    = oppScore;
     const iScored = (myTeam===0 && msg.team===0) || (myTeam===1 && msg.team===1);
     showGoal(iScored ? 'BUT ! 🎉' : 'ADVERSAIRE !', iScored ? 'var(--accent)' : 'var(--red)');
-    // Afficher 3-2-1-GO synchronisé avec le reset serveur (3500ms)
+    // Reset cibles interpolation (le prochain GAME_STATE donnera les vraies positions)
+    if(game.player){delete game.player._tx;delete game.player._ty;}
+    if(game.remotePlayers) Object.values(game.remotePlayers).forEach(p=>{delete p._tx;delete p._ty;});
     game.running = false;
     cancelAnimationFrame(game.animFrame);
     const el = document.getElementById('goal-countdown');
     const num = document.getElementById('gc-num');
     el.classList.add('show');
-    num.style.color = '#fff';
-    // Timings: 0ms→3, 875ms→2, 1750ms→1, 2625ms→GO!, 3500ms→reprise
+    // Countdown synchronisé: serveur reprend à 3500ms
     [[0,'3','#fff'],[875,'2','#fff'],[1750,'1','#fff'],[2625,'GO!','var(--accent2)']].forEach(([d,t,c])=>{
-      setTimeout(()=>{ if(el.classList.contains('show')){ num.textContent=t; num.style.color=c; }}, d);
+      setTimeout(()=>{if(el.classList.contains('show')){num.textContent=t;num.style.color=c;}},d);
     });
-    setTimeout(() => {
-      el.classList.remove('show');
-      num.style.color = 'var(--accent)';
-      if (game && !game.running) {
-        game.running = true; game.lastTime = performance.now(); gameLoop(performance.now());
-      }
-    }, 3500);
+    setTimeout(()=>{
+      el.classList.remove('show'); num.style.color='var(--accent)';
+      if(game&&!game.running){game.running=true;game.lastTime=performance.now();gameLoop(performance.now());}
+    },3500);
   }
 
   if (msg.type === 'GAME_OVER') {
@@ -1793,36 +1780,32 @@ function launchMultiGame() {
 function selectSrvMapAndSync(i)  { selectSrvMap(i);  if(socket) socket.send(JSON.stringify({type:'HOST_CONFIG',map:i})); }
 function selectSrvTimeAndSync(s) { selectSrvTime(s); if(socket) socket.send(JSON.stringify({type:'HOST_CONFIG',time:s})); }
 
-// ---- Inputs: setInterval permanent (actif même pendant countdown/reset) ----
-let _inputInterval = null;
-function startInputLoop() {
-  stopInputLoop();
-  _inputInterval = setInterval(() => {
-    if (!socket || !game || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({
-      type: 'INPUT',
-      input: {
-        up:    !!game._keys[S.keys.up],
-        down:  !!game._keys[S.keys.down],
-        left:  !!game._keys[S.keys.left],
-        right: !!game._keys[S.keys.right],
-        boost: !!game._keys[S.keys.boost]
-      }
-    }));
-  }, 33); // ~30fps
+// Inputs: setInterval permanent actif même pendant countdown/reset
+let _inputIv=null;
+function startInputLoop(){
+  if(_inputIv)clearInterval(_inputIv);
+  _inputIv=setInterval(()=>{
+    if(!socket||!game||socket.readyState!==WebSocket.OPEN)return;
+    socket.send(JSON.stringify({type:'INPUT',input:{
+      up:!!game._keys[S.keys.up],down:!!game._keys[S.keys.down],
+      left:!!game._keys[S.keys.left],right:!!game._keys[S.keys.right],
+      boost:!!game._keys[S.keys.boost]
+    }}));
+  },33);
 }
-function stopInputLoop() {
-  if (_inputInterval) { clearInterval(_inputInterval); _inputInterval = null; }
-}
+function stopInputLoop(){if(_inputIv){clearInterval(_inputIv);_inputIv=null;}}
 
 // ---- Dessin joueurs distants ----
 function drawRemotePlayers(ctx) {
   if (!game || !game.remotePlayers) return;
   Object.values(game.remotePlayers).forEach(rp => {
     if (!rp || rp.x === undefined) return;
-    // Dénormaliser: coordonnées serveur (0-1) → pixels locaux
-    const rx  = game.FX + rp.x  * game.FW;
-    const ry  = game.FY + rp.y  * game.FH;
+    // Interpolation vers cible (smooth 60fps)
+    if(rp._tx===undefined){rp._tx=game.FX+rp.x*game.FW; rp._ty=game.FY+rp.y*game.FH;}
+    else{const lp=1-Math.pow(0.01,0.016*12);rp._tx+=(game.FX+rp.x*game.FW-rp._tx)*lp;rp._ty+=(game.FY+rp.y*game.FH-rp._ty)*lp;}
+    // Interpolation angulaire
+    if(rp._ta!==undefined){let da=rp._ta-rp.angle;while(da>Math.PI)da-=Math.PI*2;while(da<-Math.PI)da+=Math.PI*2;rp.angle+=da*0.25;}
+    const rx=rp._tx, ry=rp._ty;
     const rvx = (rp.vx||0) * game.FW;
     const rvy = (rp.vy||0) * game.FH;
     const c1  = rp.c1 || (rp.team===1 ? '#cc2200' : '#00b4ff');
