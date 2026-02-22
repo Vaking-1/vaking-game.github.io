@@ -714,6 +714,12 @@ function exitSettings() {
 // KEY HANDLER — Gemini fix: keydown envoie directement au serveur
 // =====================================================================
 const keys = {};  // état local des touches (référencé par game._keys alias)
+// Timers annulables (pour éviter les fuites entre parties)
+let _goalTimers = [];
+function _clearGoalTimers() {
+  _goalTimers.forEach(id => clearTimeout(id));
+  _goalTimers = [];
+}
 document.addEventListener('keydown', e=>{
   if(listeningFor){e.preventDefault();S.keys[listeningFor]=e.key;listeningFor=null;save();renderSettings();return;}
   if(game && game.running && !game.paused && (e.key==='Escape'||e.key==='Esc')){togglePause();return;}
@@ -721,6 +727,8 @@ document.addEventListener('keydown', e=>{
   if(e.key===' ' && game) e.preventDefault();
 });
 document.addEventListener('keyup', e=>{ keys[e.key]=false; });
+// Si la fenêtre perd le focus, toutes les touches sont relâchées
+window.addEventListener('blur', ()=>{ Object.keys(keys).forEach(k=>{keys[k]=false;}); });
 
 // =====================================================================
 // PAUSE
@@ -889,18 +897,12 @@ function updateGame(dt) {
     if(bsting)p.trail.push({x:p.x,y:p.y,t:1});
     p.trail=p.trail.filter(t=>{t.t-=dt*4;return t.t>0;});
   } else {
-    // ---- MULTI: lerp doux vers position serveur ----
+    // ---- MULTI: interpolation vers position serveur ----
     if(p._tx!==undefined){
-      // Correction si trop loin (>15% du terrain): snap direct
-      const dd=Math.hypot(p._tx-p.x,p._ty-p.y);
-      if(dd>game.FW*0.15){p.x=p._tx;p.y=p._ty;}
-      else{
-        // Lerp à 12 unités/s max (pas de téléportation)
-        const lp=Math.min(1, dt*12);
-        p.x+=(p._tx-p.x)*lp; p.y+=(p._ty-p.y)*lp;
-      }
+      const lp=1-Math.pow(0.008,dt*10);
+      p.x+=(p._tx-p.x)*lp; p.y+=(p._ty-p.y)*lp;
       let da=p._ta-p.angle; while(da>Math.PI)da-=Math.PI*2; while(da<-Math.PI)da+=Math.PI*2;
-      p.angle+=da*Math.min(1,dt*12);
+      p.angle+=da*lp;
     }
     ps2=Math.sqrt((p.vx||0)**2+(p.vy||0)**2);
     if(p.boost>0)p.trail.push({x:p.x,y:p.y,t:1});
@@ -1011,19 +1013,23 @@ function resetPositions(g){
 }
 function startGoalReset(g){
   g.running=false; cancelAnimationFrame(g.animFrame); resetPositions(g);
+  _clearGoalTimers();
   // BUT! visible 1.8s, puis countdown
-  setTimeout(()=>{
+  _goalTimers.push(setTimeout(()=>{
+    if(!game)return;
     const el=document.getElementById('goal-countdown'),num=document.getElementById('gc-num');
     el.classList.add('show'); let c=3; num.textContent=c; num.style.color='#fff';
-    const iv=setInterval(()=>{
+    let iv=setInterval(()=>{
+      if(!game){clearInterval(iv);el.classList.remove('show');return;}
       c--;
       if(c===0){num.textContent='GO!';num.style.color='var(--accent2)';}
       else if(c<0){
-        clearInterval(iv);el.classList.remove('show');num.style.color='var(--accent)';
+        clearInterval(iv); el.classList.remove('show'); num.style.color='var(--accent)';
         if(game&&game.timeLeft>0){game.running=true;game.lastTime=performance.now();gameLoop(performance.now());}
       } else{num.textContent=c;num.style.color='#fff';}
     },1000);
-  },1800);
+    _goalTimers.push(iv);
+  },1800));
 }
 
 function updateTimerHUD(){
@@ -1228,6 +1234,9 @@ function endToMenu(){
   document.getElementById('ping-display').classList.remove('show');
   if(game)cancelAnimationFrame(game.animFrame);
   stopInputLoop();
+  _clearGoalTimers();
+  // Masquer le countdown s'il est visible
+  document.getElementById('goal-countdown').classList.remove('show');
   game=null; bgCache=null; tribuneCanvas=null;
   multiMode=false; myPlayerId=null; myTeam=0; roomPlayerList=[];
   showScreen('screen-main');
@@ -1312,6 +1321,8 @@ function handleServerMsg(msg) {
   // ---- GAME_STATE: état autoritaire du serveur (~20fps) ----
   if(msg.type==='GAME_STATE'){
     if(!game)return;
+    // En multi, si le jeu est en pause (menu escape), ignorer les updates de position
+    if(game.paused)return;
     // Timer & score (autorité serveur)
     game.timeLeft=msg.t;
     const myScore  = myTeam===0?msg.sA:msg.sB;
@@ -1367,19 +1378,21 @@ function handleServerMsg(msg) {
     if(game.player){delete game.player._tx;delete game.player._ty;}
     if(game.remotePlayers)Object.values(game.remotePlayers).forEach(p=>{delete p._tx;delete p._ty;});
     game.running=false; cancelAnimationFrame(game.animFrame);
-    // Séquence: BUT! visible 1.8s → puis countdown 3-2-1-GO
-    // Serveur reprend à 5000ms → client reprend à 4.8s
-    setTimeout(()=>{
+    _clearGoalTimers();
+    // BUT! 1.8s visible, puis countdown 3-2-1-GO (total 5s = timing serveur)
+    _goalTimers.push(setTimeout(()=>{
+      if(!game)return;
       const el=document.getElementById('goal-countdown'),num=document.getElementById('gc-num');
       el.classList.add('show'); num.textContent='3'; num.style.color='#fff';
       [[0,'3','#fff'],[1000,'2','#fff'],[2000,'1','#fff'],[3000,'GO!','var(--accent2)']].forEach(([d,t,c])=>{
-        setTimeout(()=>{if(el.classList.contains('show')){num.textContent=t;num.style.color=c;}},d);
+        _goalTimers.push(setTimeout(()=>{if(game&&el.classList.contains('show')){num.textContent=t;num.style.color=c;}},d));
       });
-      setTimeout(()=>{
+      _goalTimers.push(setTimeout(()=>{
+        if(!game)return;
         el.classList.remove('show'); num.style.color='var(--accent)';
-        if(game&&!game.running){game.lastTime=performance.now();game.running=true;gameLoop(performance.now());}
-      },3200); // 1800+3200=5000ms = même timing que serveur
-    },1800);
+        if(!game.running){game.lastTime=performance.now();game.running=true;gameLoop(performance.now());}
+      },3200));
+    },1800));
   }
 
   if(msg.type==='GAME_OVER'){
@@ -1451,10 +1464,10 @@ function drawRemotePlayers(ctx){
   Object.values(game.remotePlayers).forEach(rp=>{
     if(!rp||rp._tx===undefined)return;
     // Interpolation fluide vers position cible
-    const dd2=Math.hypot((rp._tx-rp.x)||0,(rp._ty-rp.y)||0);
-    if(dd2>game.FW*0.15){rp.x=rp._tx;rp.y=rp._ty;}
-    else{const lp=Math.min(1,0.016*10);rp.x=rp.x===undefined?rp._tx:rp.x+(rp._tx-rp.x)*lp;rp.y=rp.y===undefined?rp._ty:rp.y+(rp._ty-rp.y)*lp;}
-    if(rp._ta!==undefined){let da=rp._ta-rp.angle;while(da>Math.PI)da-=Math.PI*2;while(da<-Math.PI)da+=Math.PI*2;rp.angle+=da*0.18;}
+    const lp=1-Math.pow(0.008,0.016*10);
+    rp.x=rp.x===undefined?rp._tx:rp.x+(rp._tx-rp.x)*lp;
+    rp.y=rp.y===undefined?rp._ty:rp.y+(rp._ty-rp.y)*lp;
+    if(rp._ta!==undefined){let da=rp._ta-rp.angle;while(da>Math.PI)da-=Math.PI*2;while(da<-Math.PI)da+=Math.PI*2;rp.angle+=da*0.25;}
     const rvx=(rp.vx||0)*game.W, rvy=(rp.vy||0)*game.H;
     rp._wSpin=(rp._wSpin||0)+Math.sqrt(rvx**2+rvy**2)*0.0008;
     const c1=rp.c1||(rp.tm===1?'#cc2200':'#00b4ff'), c2=rp.c2||'#fff';
