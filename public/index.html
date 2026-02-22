@@ -1546,8 +1546,9 @@ function gameLoop(ts){
 
 function endGame(){
   if(!game)return;game.running=false;cancelAnimationFrame(game.animFrame);
-  const win=game.scoreP>game.scoreB;
-  const draw=game.scoreP===game.scoreB;
+  const oppScore = multiMode ? (game.scoreOpp||0) : game.scoreB;
+  const win=game.scoreP>oppScore;
+  const draw=game.scoreP===oppScore;
   let vakReward=0,xpReward=0;
   if(win){vakReward=15;xpReward=100+game.scoreP*20;}
   else if(draw){xpReward=40;}
@@ -1556,7 +1557,7 @@ function endGame(){
   if(xpReward>0){addXP(xpReward);}
   document.getElementById('end-result-text').textContent=win?'VICTOIRE !':draw?'ÉGALITÉ':'DÉFAITE';
   document.getElementById('end-result-text').className='er '+(win?'win':draw?'':'lose');
-  document.getElementById('end-final-score').textContent=`${game.scoreP} – ${game.scoreB}`;
+  document.getElementById('end-final-score').textContent=`${game.scoreP} – ${oppScore}`;
   document.getElementById('end-reward').textContent=win?`+${vakReward} VAK 🏆 · +${xpReward} XP`:`+${xpReward} XP`;
   // Notifier le serveur
   // En multi le serveur envoie GAME_OVER automatiquement
@@ -1576,38 +1577,37 @@ function endToMenu(){
   showScreen('screen-main');
 }
 
-// ======= WEBSOCKET MULTIJOUEUR (CLIENT INPUT-ONLY) =======
-// Le serveur gère toute la physique. Le client envoie les inputs et affiche le GAME_STATE reçu.
+// ======= WEBSOCKET MULTIJOUEUR =======
+// Architecture: le SERVEUR gère toute la physique.
+// Le client envoie ses INPUTS et affiche le GAME_STATE reçu.
 
-const WS_URL = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
-  ? `ws://${location.host}`
-  : `wss://${location.host}`;
+const WS_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? `ws://${location.host}` : `wss://${location.host}`;
 
-let socket = null;
-let myPlayerId = null;
-let myTeam = 0;
-let multiMode = false;
+let socket      = null;
+let myPlayerId  = null;
+let myTeam      = 0;
+let multiMode   = false;
 let roomPlayerList = [];
-let remoteState = {}; // état reçu du serveur: {players, ball, scoreA, scoreB, timeLeft}
 
+// ---- Connexion ----
 function connectToServer(onReady) {
-  if (socket && socket.readyState === WebSocket.OPEN) { if (onReady) onReady(); return; }
+  if (socket && socket.readyState === WebSocket.OPEN)       { if (onReady) onReady(); return; }
   if (socket && socket.readyState === WebSocket.CONNECTING) {
     const prev = socket.onopen;
     socket.onopen = (e) => { if (prev) prev(e); if (onReady) onReady(); };
     return;
   }
   socket = new WebSocket(WS_URL);
-  socket.onopen = () => { console.log('WS connecté'); if (onReady) onReady(); };
-  socket.onerror = () => notify('❌ Impossible de joindre le serveur');
-  socket.onclose = () => { socket = null; if (multiMode) notify('⚠️ Déconnecté du serveur'); };
-  socket.onmessage = (e) => {
-    let msg; try { msg = JSON.parse(e.data); } catch { return; }
-    handleServerMsg(msg);
-  };
+  socket.onopen    = () => { if (onReady) onReady(); };
+  socket.onerror   = () => notify('❌ Impossible de joindre le serveur');
+  socket.onclose   = () => { socket = null; if (multiMode) notify('⚠️ Déconnecté'); };
+  socket.onmessage = (e) => { let m; try { m=JSON.parse(e.data); } catch { return; } handleServerMsg(m); };
 }
 
+// ---- Messages serveur ----
 function handleServerMsg(msg) {
+
   if (msg.type === 'SERVER_CREATED') {
     document.getElementById('srv-id-display').textContent = msg.serverId;
     myPlayerId = msg.playerId;
@@ -1616,7 +1616,7 @@ function handleServerMsg(msg) {
 
   if (msg.type === 'JOINED') {
     myPlayerId = msg.playerId;
-    myTeam = msg.team ?? 0;
+    myTeam     = msg.team ?? 0;
     notify('✅ Connecté au serveur ' + msg.serverId);
     showScreen('screen-create-server');
     S.map = msg.map; S.time = msg.time;
@@ -1624,101 +1624,106 @@ function handleServerMsg(msg) {
 
   if (msg.type === 'ROOM_UPDATE') {
     roomPlayerList = msg.players || [];
-    const teamA = roomPlayerList.filter(p => p.team === 0);
-    const teamB = roomPlayerList.filter(p => p.team === 1);
-    const mkList = (arr) => arr.map(p =>
-      `• ${p.name}${p.id === myPlayerId ? ' <span style="color:var(--accent)">(Vous)</span>' : ''}`
+    const teamA = roomPlayerList.filter(p=>p.team===0);
+    const teamB = roomPlayerList.filter(p=>p.team===1);
+    const mkList = arr => arr.map(p =>
+      `• ${p.name}${p.id===myPlayerId?' <span style="color:var(--accent)">(Vous)</span>':''}`
     ).join('<br>') || '(vide)';
     document.getElementById('srv-members-list').innerHTML =
       '<span style="color:var(--accent);font-size:10px">ÉQUIPE A 🔵</span><br>' + mkList(teamA) +
       '<br><span style="color:var(--red);font-size:10px;margin-top:4px;display:block">ÉQUIPE B 🔴</span><br>' + mkList(teamB);
     document.getElementById('srv-member-count').textContent = roomPlayerList.length;
-    if (msg.map !== undefined) S.map = msg.map;
+    if (msg.map  !== undefined) S.map  = msg.map;
     if (msg.time !== undefined) S.time = msg.time;
     document.getElementById('launch-multi-btn').style.display = '';
   }
 
   if (msg.type === 'GAME_START') {
     S.map = msg.map; S.time = msg.time;
-    multiMode = true;
-    remoteState = {};
+    multiMode      = true;
     roomPlayerList = msg.players || [];
     const me = roomPlayerList.find(p => p.id === myPlayerId);
     myTeam = me ? me.team : 0;
-    const teamA = roomPlayerList.filter(p => p.team === 0).map(p => p.name).join(' & ') || 'ÉQUIPE A';
-    const teamB = roomPlayerList.filter(p => p.team === 1).map(p => p.name).join(' & ') || 'ÉQUIPE B';
+    const teamA = roomPlayerList.filter(p=>p.team===0).map(p=>p.name).join(' & ') || 'ÉQUIPE A';
+    const teamB = roomPlayerList.filter(p=>p.team===1).map(p=>p.name).join(' & ') || 'ÉQUIPE B';
     document.getElementById('hud-team-a').textContent = teamA;
     document.getElementById('hud-team-b').textContent = teamB;
     startGame();
   }
 
-  // GAME_STATE: état complet envoyé par le serveur à ~20fps
+  // GAME_STATE: état autoritaire du serveur (~20fps)
   if (msg.type === 'GAME_STATE') {
-    remoteState = msg;
     if (!game) return;
 
-    // Sync timer
+    // Timer (autorité serveur)
     game.timeLeft = msg.timeLeft;
 
-    // Sync score
+    // Scores
     const myScore  = myTeam === 0 ? msg.scoreA : msg.scoreB;
     const oppScore = myTeam === 0 ? msg.scoreB : msg.scoreA;
-    if (myScore !== game.scoreP || oppScore !== game.scoreOpp) {
-      game.scoreP   = myScore;
-      game.scoreOpp = oppScore;
-      document.getElementById('score-player').textContent = myScore;
-      document.getElementById('score-bot').textContent    = oppScore;
-    }
+    game.scoreP   = myScore;
+    game.scoreOpp = oppScore;
+    document.getElementById('score-player').textContent = myScore;
+    document.getElementById('score-bot').textContent    = oppScore;
 
-    // Sync balle (coordonnées normalisées → pixels locaux)
+    // Balle: coordonnées normalisées → pixels locaux
     if (msg.ball) {
       game.ball.x  = game.FX + msg.ball.x * game.FW;
       game.ball.y  = game.FY + msg.ball.y * game.FH;
       game.ball.vx = msg.ball.vx * game.FW;
       game.ball.vy = msg.ball.vy * game.FH;
+      // Rayon balle: le serveur envoie r normalisé, on l'adapte localement
+      game.ball.r  = Math.min(game.FW, game.FH) * 0.032;
     }
 
-    // Sync joueurs distants
+    // Joueurs
     if (msg.players) {
+      if (!game.remotePlayers) game.remotePlayers = {};
       msg.players.forEach(p => {
         if (p.id === myPlayerId) {
-          // Notre propre position: le serveur fait autorité, on corrige si trop décalé
-          const sx = game.FX + p.x * game.FW;
-          const sy = game.FY + p.y * game.FH;
-          const dist = Math.sqrt((game.player.x-sx)**2 + (game.player.y-sy)**2);
-          if (dist > game.FW * 0.08) { // correction si écart > 8% du terrain
-            game.player.x = sx;
-            game.player.y = sy;
-          }
+          // Notre position: le serveur fait autorité
+          game.player.x     = game.FX + p.x * game.FW;
+          game.player.y     = game.FY + p.y * game.FH;
+          game.player.vx    = p.vx * game.FW;
+          game.player.vy    = p.vy * game.FH;
+          game.player.angle = p.angle;
+          game.player.boost = p.boost;
         } else {
-          // Joueurs distants: stocker position normalisée pour affichage
-          if (!game.remotePlayers) game.remotePlayers = {};
+          // Joueurs distants: stocker position normalisée
           game.remotePlayers[p.id] = p;
         }
       });
     }
   }
 
+  // BUT: animation visuelle, le serveur gère le vrai reset
   if (msg.type === 'GOAL') {
     if (!game) return;
-    const iScored = (myTeam === 0 && msg.team === 0) || (myTeam === 1 && msg.team === 1);
+    const myScore  = myTeam === 0 ? msg.scoreA : msg.scoreB;
+    const oppScore = myTeam === 0 ? msg.scoreB : msg.scoreA;
+    game.scoreP   = myScore;
+    game.scoreOpp = oppScore;
+    document.getElementById('score-player').textContent = myScore;
+    document.getElementById('score-bot').textContent    = oppScore;
+    const iScored = (myTeam===0 && msg.team===0) || (myTeam===1 && msg.team===1);
     showGoal(iScored ? 'BUT ! 🎉' : 'ADVERSAIRE !', iScored ? 'var(--accent)' : 'var(--red)');
-    // Pause visuelle (le serveur gère le vrai reset)
+    // Afficher le countdown (3-2-1-GO!) pendant que le serveur remet les positions
     game.running = false;
     cancelAnimationFrame(game.animFrame);
     const el = document.getElementById('goal-countdown');
     const num = document.getElementById('gc-num');
     el.classList.add('show');
-    let c = 3; num.textContent = c;
+    let c = 3; num.textContent = c; num.style.color = '#fff';
     const iv = setInterval(() => {
       c--;
-      if (c === 0) { num.textContent = 'GO!'; num.style.color = 'var(--accent2)'; }
-      else if (c < 0) {
+      if (c === 0)      { num.textContent='GO!'; num.style.color='var(--accent2)'; }
+      else if (c < 0)  {
         clearInterval(iv);
         el.classList.remove('show');
         num.style.color = 'var(--accent)';
-        if (game) { game.running = true; game.lastTime = performance.now(); gameLoop(performance.now()); }
-      } else { num.textContent = c; num.style.color = '#fff'; }
+        // Le GAME_STATE reprendra automatiquement via le serveur (paused=false après 3.5s)
+        if (game) { game.running=true; game.lastTime=performance.now(); gameLoop(performance.now()); }
+      } else { num.textContent=c; num.style.color='#fff'; }
     }, 1000);
   }
 
@@ -1733,17 +1738,15 @@ function handleServerMsg(msg) {
   }
 }
 
+// ---- Actions lobby ----
 function openCreateServer() {
   document.getElementById('srv-id-display').textContent = '...';
   document.getElementById('srv-members-list').innerHTML = `• ${S.playerName} <span style="color:var(--accent)">(Vous)</span>`;
   document.getElementById('srv-member-count').textContent = '1';
-  connectToServer(() => {
-    socket.send(JSON.stringify({
-      type: 'CREATE_SERVER', name: S.playerName,
-      map: S.map, time: S.time,
-      c1: S.car.c1, c2: S.car.c2, model: S.car.model, wheelStyle: S.car.wheel
-    }));
-  });
+  connectToServer(() => socket.send(JSON.stringify({
+    type:'CREATE_SERVER', name:S.playerName, map:S.map, time:S.time,
+    c1:S.car.c1, c2:S.car.c2, model:S.car.model, wheelStyle:S.car.wheel
+  })));
 }
 
 function joinServer() {
@@ -1751,29 +1754,21 @@ function joinServer() {
   const errEl = document.getElementById('join-error');
   if (id.length < 4) { errEl.textContent = '❌ ID invalide'; return; }
   errEl.textContent = '';
-  connectToServer(() => {
-    socket.send(JSON.stringify({
-      type: 'JOIN_SERVER', serverId: id, name: S.playerName,
-      c1: S.car.c1, c2: S.car.c2, model: S.car.model, wheelStyle: S.car.wheel
-    }));
-  });
+  connectToServer(() => socket.send(JSON.stringify({
+    type:'JOIN_SERVER', serverId:id, name:S.playerName,
+    c1:S.car.c1, c2:S.car.c2, model:S.car.model, wheelStyle:S.car.wheel
+  })));
 }
 
 function launchMultiGame() {
   if (!socket) { notify('❌ Non connecté'); return; }
-  socket.send(JSON.stringify({ type: 'LAUNCH' }));
+  socket.send(JSON.stringify({ type:'LAUNCH' }));
 }
 
-function selectSrvMapAndSync(i) {
-  selectSrvMap(i);
-  if (socket) socket.send(JSON.stringify({ type: 'HOST_CONFIG', map: i }));
-}
-function selectSrvTimeAndSync(s) {
-  selectSrvTime(s);
-  if (socket) socket.send(JSON.stringify({ type: 'HOST_CONFIG', time: s }));
-}
+function selectSrvMapAndSync(i)  { selectSrvMap(i);  if(socket) socket.send(JSON.stringify({type:'HOST_CONFIG',map:i})); }
+function selectSrvTimeAndSync(s) { selectSrvTime(s); if(socket) socket.send(JSON.stringify({type:'HOST_CONFIG',time:s})); }
 
-// Envoi des inputs au serveur à ~30fps
+// ---- Envoi inputs à ~30fps ----
 function sendInputs() {
   if (!socket || !game || socket.readyState !== WebSocket.OPEN) return;
   socket.send(JSON.stringify({
@@ -1788,34 +1783,35 @@ function sendInputs() {
   }));
 }
 
-// Dessin des joueurs distants (positions normalisées → pixels locaux)
+// ---- Dessin joueurs distants ----
 function drawRemotePlayers(ctx) {
   if (!game || !game.remotePlayers) return;
   Object.values(game.remotePlayers).forEach(rp => {
     if (!rp || rp.x === undefined) return;
+    // Dénormaliser: coordonnées serveur (0-1) → pixels locaux
     const rx  = game.FX + rp.x  * game.FW;
     const ry  = game.FY + rp.y  * game.FH;
-    const rvx = (rp.vx || 0) * game.FW;
-    const rvy = (rp.vy || 0) * game.FH;
-    const c1  = rp.c1 || (rp.team === 1 ? '#cc2200' : '#00b4ff');
+    const rvx = (rp.vx||0) * game.FW;
+    const rvy = (rp.vy||0) * game.FH;
+    const c1  = rp.c1 || (rp.team===1 ? '#cc2200' : '#00b4ff');
     const c2  = rp.c2 || '#ffffff';
     if (rp._wSpin === undefined) rp._wSpin = 0;
-    rp._wSpin += Math.sqrt(rvx ** 2 + rvy ** 2) * 0.0008;
+    rp._wSpin += Math.sqrt(rvx**2 + rvy**2) * 0.0008;
     drawGameCar(ctx, {
-      x: rx, y: ry, angle: rp.angle || 0,
-      w: game.CW, h: game.CH,
-      trail: [], vx: rvx, vy: rvy,
-      model: rp.model ?? 0, wheelStyle: rp.wheelStyle ?? 0,
+      x:rx, y:ry, angle:rp.angle||0,
+      w:game.CW, h:game.CH,
+      trail:[], vx:rvx, vy:rvy,
+      model:rp.model??0, wheelStyle:rp.wheelStyle??0
     }, c1, c2, rp._wSpin, false);
     if (rp.name) {
       ctx.save();
       ctx.font = 'bold 11px Rajdhani, sans-serif';
       ctx.textAlign = 'center';
       const tw = ctx.measureText(rp.name).width;
-      ctx.fillStyle = rp.team === 1 ? 'rgba(200,40,0,.75)' : 'rgba(0,100,200,.75)';
-      ctx.fillRect(rx - tw / 2 - 4, ry - game.CH * .85 - 16, tw + 8, 16);
+      ctx.fillStyle = rp.team===1 ? 'rgba(200,40,0,.75)' : 'rgba(0,100,200,.75)';
+      ctx.fillRect(rx-tw/2-4, ry-game.CH*.85-16, tw+8, 16);
       ctx.fillStyle = '#fff';
-      ctx.fillText(rp.name, rx, ry - game.CH * .85 - 4);
+      ctx.fillText(rp.name, rx, ry-game.CH*.85-4);
       ctx.restore();
     }
   });
