@@ -1077,10 +1077,10 @@ function updateGame(dt){
   const g=game;
   const {FX,FY,FW,FH,GW,GH}=g;
   if(g.gFlash>0)g.gFlash-=dt;
-  // Timer: géré par le serveur en multi, local en solo
+  // Timer: serveur autoritaire en multi, local en solo
   if(!multiMode){
     g.timeLeft-=dt;
-    if(g.timeLeft<=0){g.timeLeft=0;endGame();return;}
+    if(g.timeLeft<=0){g.timeLeft=0;if(!g._ended){g._ended=true;endGame();}return;}
   }
   if(!g._lastHUDSec||Math.floor(g.timeLeft)!==g._lastHUDSec){g._lastHUDSec=Math.floor(g.timeLeft);updateTimerHUD();}
 
@@ -1215,7 +1215,14 @@ function updateGame(dt){
   } else {
     // Multi: prédiction locale entre updates serveur → 60fps fluide
     const b=g.ball;
-    if(b._svx!==undefined){ b.x+=b._svx*dt; b.y+=b._svy*dt; b._svx*=0.994; b._svy*=0.994; }
+    // Prédiction locale entre updates: avancer avec la vitesse reçue
+    if(b._svx!==undefined){ b.x+=b._svx*dt; b.y+=b._svy*dt; b._svx*=0.997; b._svy*=0.997; }
+    // Clamp aux limites visibles
+    const _fy1=game.FY, _fy2=game.FY+game.FH, _fx1=game.FX, _fx2=game.FX+game.FW;
+    if(b.y-b.r<_fy1){b.y=_fy1+b.r;b._svy=Math.abs(b._svy||0)*0.6;}
+    if(b.y+b.r>_fy2){b.y=_fy2-b.r;b._svy=-Math.abs(b._svy||0)*0.6;}
+    if(b.x-b.r<_fx1){b.x=_fx1+b.r;b._svx=Math.abs(b._svx||0)*0.6;}
+    if(b.x+b.r>_fx2){b.x=_fx2-b.r;b._svx=-Math.abs(b._svx||0)*0.6;}
     b.spin+=Math.sqrt((b._svx||0)**2+(b._svy||0)**2)*dt*.09;
   }
   updParticles(g.particles,g.theme.particles,g.W,g.H,FX,FY,FW,FH,dt);
@@ -1676,35 +1683,41 @@ function handleServerMsg(msg) {
     document.getElementById('score-player').textContent = myScore;
     document.getElementById('score-bot').textContent    = oppScore;
 
-    // Balle: coordonnées normalisées → pixels locaux avec interpolation
+    // Balle: normalisé (0→1 = toute l'image) → pixels
+    // serveur: x=0 = bord gauche image, x=1 = bord droit image
     if (msg.ball) {
-      const bx = game.FX + msg.ball.x * game.FW;
-      const by = game.FY + msg.ball.y * game.FH;
+      const bx = msg.ball.x * game.W;
+      const by = msg.ball.y * game.H;
       const bd = Math.hypot(game.ball.x-bx, game.ball.y-by);
-      if (bd > game.BR*5) { game.ball.x=bx; game.ball.y=by; } // reset: téléporter
-      else { game.ball.x+=(bx-game.ball.x)*0.4; game.ball.y+=(by-game.ball.y)*0.4; }
-      game.ball._svx = msg.ball.vx * game.FW;
-      game.ball._svy = msg.ball.vy * game.FH;
+      if (bd > game.BR*6) { game.ball.x=bx; game.ball.y=by; } // trop loin: téléporter
+      else { game.ball.x+=(bx-game.ball.x)*0.45; game.ball.y+=(by-game.ball.y)*0.45; }
+      game.ball._svx = msg.ball.vx * game.W; // vitesse en px/s
+      game.ball._svy = msg.ball.vy * game.H;
       game.ball.vx = game.ball._svx;
       game.ball.vy = game.ball._svy;
-      game.ball.r  = Math.min(game.FW, game.FH) * 0.032;
+      game.ball.r  = Math.min(game.W, game.H) * 0.030; // BALL_R=0.030 normalisé
     }
 
     // Joueurs
     if (msg.players) {
       if (!game.remotePlayers) game.remotePlayers = {};
       msg.players.forEach(p => {
-        const px = game.FX + p.x * game.FW;
-        const py = game.FY + p.y * game.FH;
+        const px = p.x * game.W; // normalisé 0→1 = 0→W pixels
+        const py = p.y * game.H;
         if (p.id === myPlayerId) {
-          // Stocker la cible d'interpolation (jamais téléporter)
-          if (game.player._tx === undefined) { game.player.x=px; game.player.y=py; }
-          game.player._tx = px; game.player._ty = py; game.player._ta = p.angle;
+          // Clamp dans les limites visibles du terrain
+          const clampX = Math.max(game.FX+game.CW/2, Math.min(game.FX+game.FW-game.CW/2, px));
+          const clampY = Math.max(game.FY+game.CH/2, Math.min(game.FY+game.FH-game.CH/2, py));
+          if (game.player._tx === undefined) { game.player.x=clampX; game.player.y=clampY; }
+          game.player._tx = clampX; game.player._ty = clampY; game.player._ta = p.angle;
           game.player.vx = p.vx*game.FW; game.player.vy = p.vy*game.FH;
           game.player.boost = p.boost;
         } else {
-          if (!game.remotePlayers[p.id]) { game.remotePlayers[p.id]={...p,_tx:px,_ty:py,_ta:p.angle}; }
-          else { Object.assign(game.remotePlayers[p.id],p); game.remotePlayers[p.id]._tx=px; game.remotePlayers[p.id]._ty=py; game.remotePlayers[p.id]._ta=p.angle; }
+          const rpx=Math.max(game.FX, Math.min(game.FX+game.FW, px));
+          const rpy=Math.max(game.FY, Math.min(game.FY+game.FH, py));
+          // vx/vy normalisés → pixels/s
+          if (!game.remotePlayers[p.id]) { game.remotePlayers[p.id]={...p,x:rpx,y:rpy,_tx:rpx,_ty:rpy,_ta:p.angle}; }
+          else { Object.assign(game.remotePlayers[p.id],p); game.remotePlayers[p.id]._tx=rpx; game.remotePlayers[p.id]._ty=rpy; game.remotePlayers[p.id]._ta=p.angle; }
         }
       });
     }
@@ -1740,7 +1753,7 @@ function handleServerMsg(msg) {
   }
 
   if (msg.type === 'GAME_OVER') {
-    if (game) endGame();
+    if (game && !game._ended) { game._ended=true; endGame(); }
   }
 
   if (msg.type === 'ERROR') {
@@ -1784,13 +1797,18 @@ function selectSrvTimeAndSync(s) { selectSrvTime(s); if(socket) socket.send(JSON
 let _inputIv=null;
 function startInputLoop(){
   if(_inputIv)clearInterval(_inputIv);
+  let _inputTick=0;
   _inputIv=setInterval(()=>{
     if(!socket||!game||socket.readyState!==WebSocket.OPEN)return;
-    socket.send(JSON.stringify({type:'INPUT',input:{
+    _inputTick++;
+    const msg={type:'INPUT',input:{
       up:!!game._keys[S.keys.up],down:!!game._keys[S.keys.down],
       left:!!game._keys[S.keys.left],right:!!game._keys[S.keys.right],
       boost:!!game._keys[S.keys.boost]
-    }}));
+    }};
+    // Envoyer les infos voiture toutes les 10 frames (~300ms)
+    if(_inputTick%10===1){msg.c1=S.car.c1;msg.c2=S.car.c2;msg.model=S.car.model;msg.wheelStyle=S.car.wheel;}
+    socket.send(JSON.stringify(msg));
   },33);
 }
 function stopInputLoop(){if(_inputIv){clearInterval(_inputIv);_inputIv=null;}}
@@ -1801,13 +1819,13 @@ function drawRemotePlayers(ctx) {
   Object.values(game.remotePlayers).forEach(rp => {
     if (!rp || rp.x === undefined) return;
     // Interpolation vers cible (smooth 60fps)
-    if(rp._tx===undefined){rp._tx=game.FX+rp.x*game.FW; rp._ty=game.FY+rp.y*game.FH;}
-    else{const lp=1-Math.pow(0.01,0.016*12);rp._tx+=(game.FX+rp.x*game.FW-rp._tx)*lp;rp._ty+=(game.FY+rp.y*game.FH-rp._ty)*lp;}
+    // _tx/_ty sont déjà en pixels (mis à jour dans handleServerMsg GAME_STATE)
+    if(rp._tx===undefined){rp._tx=rp.x||game.FX+game.FW*0.5; rp._ty=rp.y||game.FY+game.FH*0.5;}
     // Interpolation angulaire
     if(rp._ta!==undefined){let da=rp._ta-rp.angle;while(da>Math.PI)da-=Math.PI*2;while(da<-Math.PI)da+=Math.PI*2;rp.angle+=da*0.25;}
     const rx=rp._tx, ry=rp._ty;
-    const rvx = (rp.vx||0) * game.FW;
-    const rvy = (rp.vy||0) * game.FH;
+    const rvx = (rp.vx||0) * game.W; // normalisé → pixels/s
+    const rvy = (rp.vy||0) * game.H;
     const c1  = rp.c1 || (rp.team===1 ? '#cc2200' : '#00b4ff');
     const c2  = rp.c2 || '#ffffff';
     if (rp._wSpin === undefined) rp._wSpin = 0;
