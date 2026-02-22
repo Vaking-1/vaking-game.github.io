@@ -2,13 +2,13 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Diddy vs Epstein</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Orbitron:wght@400;700;900&display=swap');
 :root{--bg:#050a1a;--panel:rgba(8,16,40,0.95);--border:rgba(0,180,255,0.35);--accent:#00b4ff;--accent2:#ff6b00;--gold:#ffd700;--text:#e8f4ff;--hl:rgba(0,180,255,0.12);--red:#ff2244;}
 *{margin:0;padding:0;box-sizing:border-box;}
-body{font-family:'Rajdhani',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;width:100vw;height:100vh;user-select:none;}
+body{font-family:'Rajdhani',sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden;width:100vw;min-height:100vh;user-select:none;}
 .bg-anim{position:fixed;inset:0;z-index:0;background:radial-gradient(ellipse at 15% 85%,rgba(0,100,200,.18) 0%,transparent 55%),radial-gradient(ellipse at 85% 15%,rgba(255,100,0,.12) 0%,transparent 55%),linear-gradient(135deg,#020810 0%,#050a1a 50%,#060a14 100%);}
 .bg-grid{position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(0,180,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,180,255,.04) 1px,transparent 1px);background-size:50px 50px;animation:gm 20s linear infinite;}
 @keyframes gm{from{background-position:0 0}to{background-position:50px 50px}}
@@ -100,60 +100,109 @@ body{font-family:'Rajdhani',sans-serif;background:var(--bg);color:var(--text);ov
 #ping-display{position:fixed;bottom:14px;right:14px;z-index:200;font-family:'Orbitron',sans-serif;font-size:10px;color:rgba(255,255,255,.3);letter-spacing:1px;display:none;}
 #ping-display.show{display:block;}
 
-@media(pointer:coarse){#hud-bs-wrap{display:none;}}
+/* ================================================================
+   RESPONSIVE MOBILE
+   ================================================================ */
 
-/* ============================================================
-   CONTRÔLES MOBILES — Joystick + Boost
-   ============================================================ */
-#mobile-controls{
-  position:fixed;bottom:0;left:0;right:0;height:220px;
-  z-index:65;display:none;pointer-events:none;
+/* Screens scrollables sur mobile */
+.screen {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
-#joy-zone{
-  position:absolute;left:24px;bottom:28px;
-  width:130px;height:130px;
-  pointer-events:auto;touch-action:none;
+
+/* ── MAIN MENU ── */
+#screen-main {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 60px 16px 90px;
+  gap: 0;
 }
-#joy-base{
-  position:absolute;inset:0;border-radius:50%;
-  background:rgba(255,255,255,0.07);
-  border:2px solid rgba(255,255,255,0.20);
-  backdrop-filter:blur(3px);
+#menu-car-wrap { width: min(370px, 90vw); }
+#menu-car-wrap canvas { width: 100%; height: auto; display: block; }
+.menu-btns {
+  display: flex; flex-direction: column; gap: 2px;
+  width: min(320px, 90vw);
 }
-#joy-stick{
-  position:absolute;
-  width:54px;height:54px;border-radius:50%;
-  background:radial-gradient(circle at 35% 35%,rgba(255,255,255,0.6),rgba(0,180,255,0.4));
-  border:2px solid rgba(0,180,255,0.65);
-  box-shadow:0 0 16px rgba(0,180,255,0.45);
-  left:50%;top:50%;
-  transform:translate(-50%,-50%);
-  pointer-events:none;
+#menu-news { width: min(320px, 90vw); }
+
+/* Desktop: layout en colonnes côte à côte */
+@media (min-width: 800px) {
+  #screen-main {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 80px;
+    gap: 24px;
+  }
+  #screen-main > .logo, #screen-main > .logo-sub {
+    width: 100%; text-align: center;
+  }
+  #menu-car-wrap { width: 370px; }
+  .menu-btns { width: 280px; }
+  #menu-news { width: 275px; }
 }
-#boost-btn{
-  position:absolute;right:28px;bottom:28px;
-  width:90px;height:90px;border-radius:50%;
-  background:radial-gradient(circle at 35% 30%,rgba(255,190,0,0.65),rgba(255,70,0,0.5));
-  border:2px solid rgba(255,140,0,0.65);
-  box-shadow:0 0 22px rgba(255,100,0,0.4),inset 0 0 10px rgba(255,200,0,0.12);
-  display:flex;align-items:center;justify-content:center;
-  flex-direction:column;gap:3px;
-  pointer-events:auto;touch-action:none;
-  cursor:pointer;
-  backdrop-filter:blur(4px);
+
+/* ── TOUS LES ÉCRANS: largeurs max responsive ── */
+.screen > .rlp,
+.screen > div > .rlp {
+  width: min(660px, 96vw);
+  max-width: 96vw !important;
 }
-#boost-btn.active{
-  transform:scale(0.92);
-  box-shadow:0 0 34px rgba(255,160,0,0.8),inset 0 0 18px rgba(255,220,0,0.3);
-  background:radial-gradient(circle at 35% 30%,rgba(255,230,0,0.85),rgba(255,120,0,0.7));
+
+/* ── SCREEN PLAY ── */
+#screen-play { padding: 50px 10px 90px; gap: 12px; justify-content: flex-start; }
+#play-solo-content .rlp { width: min(660px, 96vw) !important; padding: 16px !important; }
+#play-multi-content .rlp { width: min(500px, 96vw) !important; padding: 16px !important; }
+/* Maps en 3 colonnes égales quelle que soit la taille */
+#play-solo-content .mc { width: calc(33.333% - 10px) !important; min-width: 80px; }
+#play-solo-content .mt { height: clamp(50px, 12vw, 95px) !important; }
+#play-solo-content .mn { font-size: clamp(8px, 2vw, 11px) !important; padding: 4px 6px !important; }
+/* Boutons multi empilés sur mobile */
+@media (max-width: 500px) {
+  #play-multi-content .rlp > div:first-child { flex-direction: column !important; }
+  #play-multi-content .pbtn { width: 100%; }
 }
-.boost-icon{font-size:28px;line-height:1;}
-.boost-label{
-  font-family:'Orbitron',sans-serif;font-size:9px;font-weight:700;
-  letter-spacing:2px;color:rgba(255,255,255,0.85);
+
+/* ── GARAGE ── */
+#screen-garage { padding: 50px 10px 90px; gap: 12px; justify-content: flex-start; }
+#screen-garage > div { width: min(860px, 96vw) !important; max-width: 96vw !important; }
+@media (max-width: 700px) {
+  #screen-garage > div { flex-direction: column !important; gap: 12px !important; }
+  #screen-garage canvas { width: 100% !important; height: auto !important; }
+  #screen-garage > div > div:last-child { max-height: 52vh !important; }
 }
-#mobile-controls.ingame{display:block;}
-@media(pointer:coarse){#hud-bs-wrap{display:none;}}
+
+/* ── SHOP ── */
+#screen-shop { padding: 50px 10px 90px; gap: 12px; justify-content: flex-start; }
+#screen-shop .rlp { width: min(520px, 96vw) !important; }
+@media (max-width: 500px) {
+  #shop-grid { grid-template-columns: repeat(2, 1fr) !important; }
+}
+
+/* ── SETTINGS / CREATE / JOIN ── */
+#screen-settings, #screen-create-server, #screen-join-server {
+  padding: 50px 10px 90px; gap: 12px; justify-content: flex-start;
+}
+#screen-settings .rlp { width: min(500px, 96vw) !important; }
+#screen-create-server .rlp { width: min(580px, 96vw) !important; padding: 16px !important; }
+#screen-join-server .rlp { width: min(460px, 96vw) !important; padding: 16px !important; }
+
+/* ── VAK bar + PING ── */
+.vak-bar { font-size: clamp(11px, 3vw, 15px); padding: 6px 12px; }
+#ping-display { font-size: clamp(9px, 2.5vw, 11px); }
+
+/* ── Player bar ── */
+@media (max-width: 500px) {
+  .plbar { padding: 7px 12px; gap: 8px; }
+  #bar-msg { display: none; }
+}
+
+/* ── Buttons responsive ── */
+.tbtn { font-size: clamp(10px, 2.5vw, 12px); padding: clamp(6px, 1.5vw, 8px) clamp(8px, 2vw, 14px); }
+.mbtn { font-size: clamp(15px, 4vw, 17px); padding: clamp(11px, 3vw, 13px) 22px; }
+.pbtn { font-size: clamp(13px, 3.5vw, 17px); padding: clamp(10px, 2.5vw, 13px) clamp(20px, 5vw, 40px); }
 
 </style>
 </head>
@@ -164,32 +213,25 @@ body{font-family:'Rajdhani',sans-serif;background:var(--bg);color:var(--text);ov
 <div id="ping-display">PING: <span id="ping-val">--</span>ms</div>
 
 <!-- MAIN MENU -->
-<div class="screen active" id="screen-main" style="flex-direction:row;align-items:center;justify-content:center;gap:48px">
-  <div style="display:flex;flex-direction:column;align-items:flex-start">
-    <div class="logo">Diddy vs Epstein</div>
-    <div class="logo-sub">SAISON 1 · ÉDITION SPÉCIALE</div>
-    <div style="display:flex;gap:18px;align-items:flex-start">
-      <div>
-        <div class="rlp" style="padding:14px;margin-bottom:10px;width:370px">
-          <canvas id="menuCarCanvas" width="342" height="175"></canvas>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:2px;width:280px">
-          <button class="mbtn" onclick="showScreen('screen-play')">▶ JOUER</button>
-          <button class="mbtn" onclick="showScreen('screen-garage')">🚗 GARAGE</button>
-          <button class="mbtn" onclick="showScreen('screen-shop')">🛒 BOUTIQUE</button>
-          <button class="mbtn" onclick="showScreen('screen-settings')">⚙ PARAMÈTRES</button>
-          <button class="mbtn" onclick="openAdmin()" style="font-size:11px;color:rgba(255,255,255,.28);border-left:2px solid rgba(255,215,0,.2);margin-top:8px">🔒 Only staff</button>
-        </div>
-      </div>
-      <div class="rlp" style="width:275px;padding:18px">
-        <div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:#fff;margin-bottom:10px;letter-spacing:1px">⚡ ACTUALITÉS</div>
-        <div style="font-size:12px;color:rgba(255,255,255,.62);line-height:1.7">
-          <strong style="color:#fff">SAISON 1 EN COURS !</strong><br><br>
-          Bienvenue dans <em>Diddy vs Epstein</em>.<br><br>
-          Gagnez des VAK en remportant des matchs et dépensez-les en boutique.<br><br>
-          <span style="color:var(--gold)">+15 VAK</span> par victoire !
-        </div>
-      </div>
+<div class="screen active" id="screen-main">
+  <div class="logo">Diddy vs Epstein</div>
+  <div class="logo-sub">SAISON 1 · ÉDITION SPÉCIALE</div>
+  <div id="menu-car-wrap" class="rlp" style="padding:14px;margin-bottom:10px">
+    <canvas id="menuCarCanvas" width="342" height="175"></canvas>
+  </div>
+  <div class="menu-btns">
+    <button class="mbtn" onclick="showScreen('screen-play')">▶ JOUER</button>
+    <button class="mbtn" onclick="showScreen('screen-garage')">🚗 GARAGE</button>
+    <button class="mbtn" onclick="showScreen('screen-shop')">🛒 BOUTIQUE</button>
+    <button class="mbtn" onclick="showScreen('screen-settings')">⚙ PARAMÈTRES</button>
+    <button class="mbtn" onclick="openAdmin()" style="font-size:11px;color:rgba(255,255,255,.28);border-left:2px solid rgba(255,215,0,.2);margin-top:8px">🔒 Only staff</button>
+  </div>
+  <div id="menu-news" class="rlp" style="padding:18px;margin-top:10px">
+    <div style="font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;color:#fff;margin-bottom:8px;letter-spacing:1px">⚡ ACTUALITÉS</div>
+    <div style="font-size:12px;color:rgba(255,255,255,.62);line-height:1.7">
+      <strong style="color:#fff">SAISON 1 EN COURS !</strong><br>
+      Gagnez des VAK en remportant des matchs.<br>
+      <span style="color:var(--gold)">+15 VAK</span> par victoire !
     </div>
   </div>
 </div>
@@ -294,7 +336,7 @@ body{font-family:'Rajdhani',sans-serif;background:var(--bg);color:var(--text);ov
     <div class="hud-div"></div>
     <div><div class="hud-t" id="hud-team-b">BOTS</div><div class="hud-n" id="score-bot">0</div></div>
   </div>
-  <div class="hud-bs" id="hud-bs-wrap">
+  <div class="hud-bs">
     <div class="hud-bsb"><div class="hud-bsf" id="boost-fill" style="height:80%"></div></div>
     <div class="hud-bsl">BOOST</div>
   </div>
@@ -853,7 +895,6 @@ function _launchGameUI() {
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById('game-canvas').style.display='block';
   document.getElementById('game-hud').style.display='block';
-  showMobileControls(true);
   document.getElementById('player-bar').style.display='none';
   document.getElementById('vak-display').style.display='none';
   if(!multiMode){
@@ -1285,7 +1326,6 @@ function endToMenu(){
   document.getElementById('pm').classList.remove('show');
   document.getElementById('game-canvas').style.display='none';
   document.getElementById('game-hud').style.display='none';
-  showMobileControls(false);
   document.getElementById('score-player').textContent='0';
   document.getElementById('score-bot').textContent='0';
   document.getElementById('ping-display').classList.remove('show');
@@ -1538,136 +1578,10 @@ function drawRemotePlayers(ctx){
   });
 }
 
-
-// ============================================================
-// CONTRÔLES MOBILES — Joystick analogique + Bouton boost
-// ============================================================
-(function(){
-  const STICK_MAX  = 42;
-  const DEAD_ZONE  = 0.12;
-
-  let joyActive = false;
-  let joyTouchId = null;
-  let joyOriginX = 0, joyOriginY = 0;
-  let joydx = 0, joydy = 0;
-
-  const zone  = document.getElementById('joy-zone');
-  const stick = document.getElementById('joy-stick');
-  const boostBtn = document.getElementById('boost-btn');
-
-  function setStick(dx, dy) {
-    stick.style.transform = `translate(calc(-50% + ${dx*STICK_MAX}px), calc(-50% + ${dy*STICK_MAX}px))`;
-  }
-
-  function applyJoy() {
-    keys[S.keys.up]    = joyActive && joydy < -DEAD_ZONE;
-    keys[S.keys.down]  = joyActive && joydy >  DEAD_ZONE;
-    keys[S.keys.left]  = joyActive && joydx < -DEAD_ZONE;
-    keys[S.keys.right] = joyActive && joydx >  DEAD_ZONE;
-  }
-
-  zone.addEventListener('touchstart', e => {
-    e.preventDefault();
-    if (joyActive) return;
-    const t = e.changedTouches[0];
-    joyTouchId = t.identifier;
-    joyActive = true;
-    const rect = zone.getBoundingClientRect();
-    joyOriginX = rect.left + rect.width  / 2;
-    joyOriginY = rect.top  + rect.height / 2;
-    joydx = 0; joydy = 0;
-    setStick(0, 0);
-    applyJoy();
-  }, { passive: false });
-
-  zone.addEventListener('touchmove', e => {
-    e.preventDefault();
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      const t = e.changedTouches[i];
-      if (t.identifier !== joyTouchId) continue;
-      const rawX = t.clientX - joyOriginX;
-      const rawY = t.clientY - joyOriginY;
-      const dist = Math.sqrt(rawX*rawX + rawY*rawY);
-      const clamp = Math.min(dist, STICK_MAX);
-      const angle = Math.atan2(rawY, rawX);
-      joydx = (clamp / STICK_MAX) * Math.cos(angle);
-      joydy = (clamp / STICK_MAX) * Math.sin(angle);
-      setStick(joydx, joydy);
-      applyJoy();
-    }
-  }, { passive: false });
-
-  function joyEnd(e) {
-    e.preventDefault();
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      if (e.changedTouches[i].identifier === joyTouchId) {
-        joyActive = false; joyTouchId = null;
-        joydx = 0; joydy = 0;
-        setStick(0, 0);
-        applyJoy();
-        break;
-      }
-    }
-  }
-  zone.addEventListener('touchend',    joyEnd, { passive: false });
-  zone.addEventListener('touchcancel', joyEnd, { passive: false });
-
-  let boostTouchId = null;
-  boostBtn.addEventListener('touchstart', e => {
-    e.preventDefault();
-    if (boostTouchId !== null) return;
-    boostTouchId = e.changedTouches[0].identifier;
-    keys[S.keys.boost] = true;
-    boostBtn.classList.add('active');
-  }, { passive: false });
-
-  function boostEnd(e) {
-    e.preventDefault();
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      if (e.changedTouches[i].identifier === boostTouchId) {
-        boostTouchId = null;
-        keys[S.keys.boost] = false;
-        boostBtn.classList.remove('active');
-        break;
-      }
-    }
-  }
-  boostBtn.addEventListener('touchend',    boostEnd, { passive: false });
-  boostBtn.addEventListener('touchcancel', boostEnd, { passive: false });
-})();
-
-function showMobileControls(visible) {
-  const mc = document.getElementById('mobile-controls');
-  if (!mc) return;
-  const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
-  if (visible && isTouch) mc.classList.add('ingame');
-  else mc.classList.remove('ingame');
-}
-
 // =====================================================================
 // INIT
 // =====================================================================
 updateVak(); updatePlayerBar(); renderMenuCar();
 </script>
-
-<!-- ========== CONTRÔLES MOBILES ========== -->
-<div id="mobile-controls">
-  <div id="joy-zone">
-    <div id="joy-base">
-      <svg style="position:absolute;inset:0;width:100%;height:100%;opacity:.3" viewBox="0 0 130 130">
-        <polygon points="65,8 73,24 57,24" fill="white"/>
-        <polygon points="65,122 73,106 57,106" fill="white"/>
-        <polygon points="8,65 24,57 24,73" fill="white"/>
-        <polygon points="122,65 106,57 106,73" fill="white"/>
-      </svg>
-    </div>
-    <div id="joy-stick"></div>
-  </div>
-  <div id="boost-btn">
-    <span class="boost-icon">⚡</span>
-    <span class="boost-label">BOOST</span>
-  </div>
-</div>
-
 </body>
 </html>
