@@ -319,11 +319,29 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     if (!roomId || !rooms[roomId]) return;
     const room = rooms[roomId];
+    const leavingPlayer = room.players[playerId];
+    const wasStarted = room.started;
+
     delete room.players[playerId];
+
     if (Object.keys(room.players).length === 0) {
+      // Plus personne — supprimer la room
       if (room.ticker) clearInterval(room.ticker);
       delete rooms[roomId];
+    } else if (wasStarted) {
+      // Partie en cours : arrêter le jeu, les survivants gagnent par forfait
+      if (room.ticker) { clearInterval(room.ticker); room.ticker = null; }
+      room.started = false;
+      room._gameOverSent = true;
+      broadcast(room, {
+        type: 'PLAYER_LEFT',
+        playerId,
+        name: leavingPlayer ? leavingPlayer.name : 'Adversaire',
+        scoreA: room.scoreA,
+        scoreB: room.scoreB
+      });
     } else {
+      // En lobby — juste mettre à jour la liste
       broadcast(room, { type: 'ROOM_UPDATE', players: getPlayerList(room), map: room.map, time: room.time });
     }
   });
