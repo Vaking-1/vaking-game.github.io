@@ -1031,6 +1031,7 @@ function startGame(){
     document.getElementById('hud-team-b').textContent='BOTS';
   }
   game=createGame(cvs);
+  if(multiMode) startInputLoop();
   startCountdown();
 }
 
@@ -1049,6 +1050,7 @@ function createGame(cvs){
     ball:{x:FX+FW/2,y:FY+FH/2,vx:(Math.random()-.5)*4,vy:(Math.random()-.5)*4,r:BR,spin:0},
     player:{x:multiMode?(myTeam===0?FX+FW*.22:FX+FW*.78):FX+FW*.22,y:FY+FH/2,vx:0,vy:0,w:CW,h:CH,boost:.8,angle:myTeam===1?Math.PI:0,trail:[]},
     bots:[],_keys:{},
+    remotePlayers:{},
     particles:mkParticles(theme.particles,20,W,H,FX,FY,FW,FH),
     gFlash:0,gColor:'#fff',animFrame:null,
   };
@@ -1081,11 +1083,14 @@ function updateGame(dt){
     g.timeLeft-=dt;
     if(g.timeLeft<=0){g.timeLeft=0;endGame();return;}
   }
-  if(!g._lastHUDSec||Math.ceil(g.timeLeft)!==g._lastHUDSec){g._lastHUDSec=Math.ceil(g.timeLeft);updateTimerHUD();}
+  // HUD timer: toujours mettre à jour (solo + multi)
+  if(!g._lastHUDSec||Math.floor(g.timeLeft)!==g._lastHUDSec){g._lastHUDSec=Math.floor(g.timeLeft);updateTimerHUD();}
 
   const p=g.player;
   const bsting=g._keys[S.keys.boost]&&p.boost>0;
-  const spd=SPD*(bsting?1.88:1);
+  // En multi: vitesse calée sur le serveur (0.30 * FW = px/sec)
+  const baseSpd = multiMode ? g.FW * 0.30 : SPD;
+  const spd=baseSpd*(bsting?1.88:1);
   if(bsting)p.boost=Math.max(0,p.boost-dt*.55);
   else p.boost=Math.min(1,p.boost+dt*.18);
 
@@ -1095,8 +1100,12 @@ function updateGame(dt){
   if(g._keys[S.keys.left])ax-=1;
   if(g._keys[S.keys.right])ax+=1;
   const al=Math.sqrt(ax*ax+ay*ay)||1;
-  p.vx+=ax/al*spd*dt*3.2;p.vy+=ay/al*spd*dt*3.2;
-  p.vx*=FRIC;p.vy*=FRIC;
+  // En multi: utiliser les mêmes constantes que le serveur (converties en px)
+  // Serveur: SPD_norm=0.30, accel=5.0, FRIC=0.82/sec
+  const accel = multiMode ? 5.0 : 3.2;
+  const fricPerFrame = multiMode ? Math.pow(0.82, dt) : FRIC;
+  p.vx+=ax/al*spd*dt*accel;p.vy+=ay/al*spd*dt*accel;
+  p.vx*=fricPerFrame;p.vy*=fricPerFrame;
   const ps2=Math.sqrt(p.vx*p.vx+p.vy*p.vy);
   if(ps2>spd*1.22){p.vx=p.vx/ps2*spd*1.22;p.vy=p.vy/ps2*spd*1.22;}
   if(ps2>8)p.angle=Math.atan2(p.vy,p.vx);
@@ -1199,8 +1208,18 @@ function updateGame(dt){
     if(b.x-b.r<FX){b.x=FX+b.r;b.vx=Math.abs(b.vx)*BNC;}
     if(b.x+b.r>FX+FW){b.x=FX+FW-b.r;b.vx=-Math.abs(b.vx)*BNC;}
   } else {
-    // Multi: juste spin visuel, position vient du serveur via GAME_STATE
-    g.ball.spin+=Math.sqrt(g.ball.vx*g.ball.vx+g.ball.vy*g.ball.vy)*dt*.09;
+    // Multi: interpolation locale entre les mises à jour serveur (~20fps → 60fps fluide)
+    // ball.vx/vy sont en px/sec (convertis depuis normalisé dans GAME_STATE)
+    const b = g.ball;
+    // Utiliser les vitesses serveur pour prédire la position localement
+    if (b._serverVx !== undefined) {
+      b.x += b._serverVx * dt;
+      b.y += b._serverVy * dt;
+      // Appliquer friction locale pour coller au serveur
+      b._serverVx *= 0.994;
+      b._serverVy *= 0.994;
+    }
+    b.spin += Math.sqrt((b._serverVx||b.vx)**2 + (b._serverVy||b.vy)**2) * dt * 0.09;
   }
   updParticles(g.particles,g.theme.particles,g.W,g.H,FX,FY,FW,FH,dt);
 }
@@ -1280,7 +1299,7 @@ function startGoalReset(g){
 }
 
 function updateTimerHUD(){
-  const t=Math.ceil(game.timeLeft),m=Math.floor(t/60),s=t%60;
+  const t=Math.max(0,Math.ceil(game.timeLeft)),m=Math.floor(t/60),s=t%60;
   document.getElementById('hud-timer').textContent=`${m}:${s.toString().padStart(2,'0')}`;
   document.getElementById('hud-timer').style.color=t<=30?'var(--red)':'var(--accent)';
 }
@@ -1534,13 +1553,6 @@ function gameLoop(ts){
   if(!game||!game.running||game.paused)return;
   const dt=Math.min((ts-game.lastTime)/1000,.05);
   game.lastTime=ts;updateGame(dt);renderGame();
-  if(multiMode){
-    // Envoyer inputs au serveur à ~30fps
-    if(!game._lastInput||ts-game._lastInput>33){
-      sendInputs();
-      game._lastInput=ts;
-    }
-  }
   game.animFrame=requestAnimationFrame(gameLoop);
 }
 
@@ -1572,8 +1584,9 @@ function endToMenu(){
   document.getElementById('score-player').textContent='0';
   document.getElementById('score-bot').textContent='0';
   if(game)cancelAnimationFrame(game.animFrame);
+  stopInputLoop();
   game=null;bgCache=null;tribuneCanvas=null;
-  multiMode=false;remotePlayers={};
+  multiMode=false;myPlayerId=null;myTeam=0;
   showScreen('screen-main');
 }
 
@@ -1589,6 +1602,7 @@ let myPlayerId  = null;
 let myTeam      = 0;
 let multiMode   = false;
 let roomPlayerList = [];
+// remotePlayers est maintenant dans game.remotePlayers (initialisé dans createGame)
 
 // ---- Connexion ----
 function connectToServer(onReady) {
@@ -1668,11 +1682,21 @@ function handleServerMsg(msg) {
 
     // Balle: coordonnées normalisées → pixels locaux
     if (msg.ball) {
-      game.ball.x  = game.FX + msg.ball.x * game.FW;
-      game.ball.y  = game.FY + msg.ball.y * game.FH;
-      game.ball.vx = msg.ball.vx * game.FW;
-      game.ball.vy = msg.ball.vy * game.FH;
-      // Rayon balle: le serveur envoie r normalisé, on l'adapte localement
+      // Correction de position: téléporter si trop loin, sinon interpoler doucement
+      const bx = game.FX + msg.ball.x * game.FW;
+      const by = game.FY + msg.ball.y * game.FH;
+      const bdist = Math.sqrt((game.ball.x-bx)**2 + (game.ball.y-by)**2);
+      if (bdist > game.BR * 4) {
+        game.ball.x = bx; game.ball.y = by; // téléportation si trop loin (reset)
+      } else {
+        game.ball.x += (bx - game.ball.x) * 0.4; // correction douce
+        game.ball.y += (by - game.ball.y) * 0.4;
+      }
+      // Stocker vitesses serveur pour interpolation locale entre updates
+      game.ball._serverVx = msg.ball.vx * game.FW;
+      game.ball._serverVy = msg.ball.vy * game.FH;
+      game.ball.vx = game.ball._serverVx;
+      game.ball.vy = game.ball._serverVy;
       game.ball.r  = Math.min(game.FW, game.FH) * 0.032;
     }
 
@@ -1681,13 +1705,22 @@ function handleServerMsg(msg) {
       if (!game.remotePlayers) game.remotePlayers = {};
       msg.players.forEach(p => {
         if (p.id === myPlayerId) {
-          // Notre position: le serveur fait autorité
-          game.player.x     = game.FX + p.x * game.FW;
-          game.player.y     = game.FY + p.y * game.FH;
-          game.player.vx    = p.vx * game.FW;
-          game.player.vy    = p.vy * game.FH;
-          game.player.angle = p.angle;
+          // Notre joueur: on utilise la physique locale (client-side prediction)
+          // On sync seulement le boost depuis le serveur
           game.player.boost = p.boost;
+          // Correction douce de position si trop éloigné du serveur (anti-désynchro)
+          const sx = game.FX + p.x * game.FW;
+          const sy = game.FY + p.y * game.FH;
+          const dist = Math.sqrt((game.player.x-sx)**2 + (game.player.y-sy)**2);
+          if (dist > game.CW * 1.5) {
+            // Trop loin: correction brutale
+            game.player.x = sx; game.player.y = sy;
+            game.player.vx = p.vx * game.FW; game.player.vy = p.vy * game.FH;
+          } else if (dist > game.CW * 0.3) {
+            // Correction douce
+            game.player.x += (sx - game.player.x) * 0.15;
+            game.player.y += (sy - game.player.y) * 0.15;
+          }
         } else {
           // Joueurs distants: stocker position normalisée
           game.remotePlayers[p.id] = p;
@@ -1713,18 +1746,27 @@ function handleServerMsg(msg) {
     const el = document.getElementById('goal-countdown');
     const num = document.getElementById('gc-num');
     el.classList.add('show');
-    let c = 3; num.textContent = c; num.style.color = '#fff';
-    const iv = setInterval(() => {
-      c--;
-      if (c === 0)      { num.textContent='GO!'; num.style.color='var(--accent2)'; }
-      else if (c < 0)  {
-        clearInterval(iv);
-        el.classList.remove('show');
-        num.style.color = 'var(--accent)';
-        // Le GAME_STATE reprendra automatiquement via le serveur (paused=false après 3.5s)
-        if (game) { game.running=true; game.lastTime=performance.now(); gameLoop(performance.now()); }
-      } else { num.textContent=c; num.style.color='#fff'; }
-    }, 1000);
+    // Countdown synchronisé avec le serveur (reset à 3.5s)
+    // 0ms→3, 875ms→2, 1750ms→1, 2625ms→GO, 3500ms→reprise
+    const steps = [
+      [0,    '3',   '#fff'],
+      [875,  '2',   '#fff'],
+      [1750, '1',   '#fff'],
+      [2625, 'GO!', 'var(--accent2)'],
+    ];
+    steps.forEach(([delay, txt, color]) => {
+      setTimeout(() => {
+        if (!el.classList.contains('show')) return;
+        num.textContent = txt; num.style.color = color;
+      }, delay);
+    });
+    setTimeout(() => {
+      el.classList.remove('show');
+      num.style.color = 'var(--accent)';
+      if (game && !game.running) {
+        game.running = true; game.lastTime = performance.now(); gameLoop(performance.now());
+      }
+    }, 3500);
   }
 
   if (msg.type === 'GAME_OVER') {
@@ -1768,20 +1810,7 @@ function launchMultiGame() {
 function selectSrvMapAndSync(i)  { selectSrvMap(i);  if(socket) socket.send(JSON.stringify({type:'HOST_CONFIG',map:i})); }
 function selectSrvTimeAndSync(s) { selectSrvTime(s); if(socket) socket.send(JSON.stringify({type:'HOST_CONFIG',time:s})); }
 
-// ---- Envoi inputs à ~30fps ----
-function sendInputs() {
-  if (!socket || !game || socket.readyState !== WebSocket.OPEN) return;
-  socket.send(JSON.stringify({
-    type: 'INPUT',
-    input: {
-      up:    !!game._keys[S.keys.up],
-      down:  !!game._keys[S.keys.down],
-      left:  !!game._keys[S.keys.left],
-      right: !!game._keys[S.keys.right],
-      boost: !!game._keys[S.keys.boost]
-    }
-  }));
-}
+// Envoi inputs: voir startInputLoop() — setInterval permanent pour couvrir countdown + jeu
 
 // ---- Dessin joueurs distants ----
 function drawRemotePlayers(ctx) {
@@ -1815,6 +1844,29 @@ function drawRemotePlayers(ctx) {
       ctx.restore();
     }
   });
+}
+
+// ---- Inputs: envoyés en permanence (couvre countdown + jeu) ----
+let _inputInterval = null;
+function startInputLoop() {
+  stopInputLoop();
+  _inputInterval = setInterval(() => {
+    if (multiMode && game && socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({
+        type: 'INPUT',
+        input: {
+          up:    !!game._keys[S.keys.up],
+          down:  !!game._keys[S.keys.down],
+          left:  !!game._keys[S.keys.left],
+          right: !!game._keys[S.keys.right],
+          boost: !!game._keys[S.keys.boost]
+        }
+      }));
+    }
+  }, 33); // ~30fps
+}
+function stopInputLoop() {
+  if (_inputInterval) { clearInterval(_inputInterval); _inputInterval = null; }
 }
 
 // ======= INIT =======
