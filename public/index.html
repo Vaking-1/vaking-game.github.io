@@ -1076,8 +1076,8 @@ function updateGame(dt){
   const g=game;
   const {FX,FY,FW,FH,GW,GH}=g;
   if(g.gFlash>0)g.gFlash-=dt;
-  // Seul l'hôte (ou solo) gère le timer de fin
-  if(!multiMode || isHost){
+  // Timer: géré par le serveur en multi, local en solo
+  if(!multiMode){
     g.timeLeft-=dt;
     if(g.timeLeft<=0){g.timeLeft=0;endGame();return;}
   }
@@ -1167,46 +1167,27 @@ function updateGame(dt){
     ballCollide(bot,g.ball);
   });
 
-  // Collision joueur-ballon : uniquement hôte ou solo
-  // Le non-hôte envoie juste sa position, l'hôte calcule les collisions pour tout le monde
-  if(!multiMode || isHost) ballCollide(p, g.ball);
-
-  // Collision joueurs distants avec ballon (hôte seulement)
-  if(multiMode && isHost) collideRemotePlayersWithBall();
-
-  // Player-bot collisions (solo seulement)
-  if(!multiMode) g.bots.forEach(bot=>{carCarCollide(p,bot);});
-  // Bot-bot collisions
-  for(let i=0;i<g.bots.length;i++)for(let j=i+1;j<g.bots.length;j++)carCarCollide(g.bots[i],g.bots[j]);
-
-  // ======= PHYSIQUE BALLE =======
-  // NON-HÔTE: applique seulement la position reçue du serveur, rien d'autre
-  if(multiMode && !isHost){
-    if(g.ball._sx !== undefined){
-      g.ball.x  = g.ball._sx;
-      g.ball.y  = g.ball._sy;
-      g.ball.vx = g.ball._svx;
-      g.ball.vy = g.ball._svy;
-    }
-    g.ball.spin += Math.sqrt(g.ball.vx*g.ball.vx+g.ball.vy*g.ball.vy)*dt*.09;
-    updParticles(g.particles,g.theme.particles,g.W,g.H,g.FX,g.FY,g.FW,g.FH,dt);
-    return;
-  }
-  // HÔTE ou SOLO: physique balle complète
-  const b=g.ball;
-  b.x+=b.vx*dt*60; b.y+=b.vy*dt*60;
-  b.vx*=.994; b.vy*=.994;
-  b.spin+=Math.sqrt(b.vx*b.vx+b.vy*b.vy)*dt*.09;
-  const gY1=FY+FH/2-GH/2, gY2=FY+FH/2+GH/2;
-  if(b.y-b.r<FY){b.y=FY+b.r;b.vy=Math.abs(b.vy)*BNC;b.vx+=(Math.random()-.5)*.5;}
-  if(b.y+b.r>FY+FH){b.y=FY+FH-b.r;b.vy=-Math.abs(b.vy)*BNC;b.vx+=(Math.random()-.5)*.5;}
-  const corners=[[FX,FY],[FX+FW,FY],[FX,FY+FH],[FX+FW,FY+FH]];
-  corners.forEach(([cx,cy])=>{
-    const cdx=b.x-cx,cdy=b.y-cy,cd=Math.sqrt(cdx*cdx+cdy*cdy);
-    if(cd<b.r*1.4&&cd>0){const cn=1/cd;b.vx+=cdx*cn*1.8;b.vy+=cdy*cn*1.8;}
-  });
-  // Détection de but - SOLO uniquement (multi géré par triggerGoal)
+  // En multi: le serveur gère toutes les collisions
+  // En solo: collision locale
   if(!multiMode){
+    ballCollide(p, g.ball);
+    g.bots.forEach(bot=>{carCarCollide(p,bot);});
+    for(let i=0;i<g.bots.length;i++)for(let j=i+1;j<g.bots.length;j++)carCarCollide(g.bots[i],g.bots[j]);
+  }
+
+  // Physique balle: SOLO uniquement. En multi le serveur gère tout via GAME_STATE
+  if(!multiMode){
+    const b=g.ball;
+    b.x+=b.vx*dt*60; b.y+=b.vy*dt*60;
+    b.vx*=.994; b.vy*=.994;
+    b.spin+=Math.sqrt(b.vx*b.vx+b.vy*b.vy)*dt*.09;
+    const gY1=FY+FH/2-GH/2, gY2=FY+FH/2+GH/2;
+    if(b.y-b.r<FY){b.y=FY+b.r;b.vy=Math.abs(b.vy)*BNC;b.vx+=(Math.random()-.5)*.5;}
+    if(b.y+b.r>FY+FH){b.y=FY+FH-b.r;b.vy=-Math.abs(b.vy)*BNC;b.vx+=(Math.random()-.5)*.5;}
+    [[FX,FY],[FX+FW,FY],[FX,FY+FH],[FX+FW,FY+FH]].forEach(([cx,cy])=>{
+      const cdx=b.x-cx,cdy=b.y-cy,cd=Math.sqrt(cdx*cdx+cdy*cdy);
+      if(cd<b.r*1.4&&cd>0){const cn=1/cd;b.vx+=cdx*cn*1.8;b.vy+=cdy*cn*1.8;}
+    });
     if(b.x-b.r<FX && b.y>gY1 && b.y<gY2){
       g.scoreB++;document.getElementById('score-bot').textContent=g.scoreB;
       showGoal('BOT GOAL!','var(--red)');startGoalReset(g);return;
@@ -1215,23 +1196,12 @@ function updateGame(dt){
       g.scoreP++;document.getElementById('score-player').textContent=g.scoreP;
       showGoal('BUT !','var(--accent)');startGoalReset(g);return;
     }
+    if(b.x-b.r<FX){b.x=FX+b.r;b.vx=Math.abs(b.vx)*BNC;}
+    if(b.x+b.r>FX+FW){b.x=FX+FW-b.r;b.vx=-Math.abs(b.vx)*BNC;}
+  } else {
+    // Multi: juste spin visuel, position vient du serveur via GAME_STATE
+    g.ball.spin+=Math.sqrt(g.ball.vx*g.ball.vx+g.ball.vy*g.ball.vy)*dt*.09;
   }
-  // Détection de but - MULTI hôte uniquement (un seul déclenchement grâce au flag)
-  if(multiMode && isHost && !g._goalPending){
-    if(b.x-b.r<FX && b.y>gY1 && b.y<gY2){
-      g._goalPending=true;
-      if(socket&&socket.readyState===WebSocket.OPEN) socket.send(JSON.stringify({type:'GOAL',team:1}));
-      return;
-    }
-    if(b.x+b.r>FX+FW && b.y>gY1 && b.y<gY2){
-      g._goalPending=true;
-      if(socket&&socket.readyState===WebSocket.OPEN) socket.send(JSON.stringify({type:'GOAL',team:0}));
-      return;
-    }
-  }
-  // Murs latéraux (hors cage)
-  if(b.x-b.r<FX){b.x=FX+b.r;b.vx=Math.abs(b.vx)*BNC;}
-  if(b.x+b.r>FX+FW){b.x=FX+FW-b.r;b.vx=-Math.abs(b.vx)*BNC;}
   updParticles(g.particles,g.theme.particles,g.W,g.H,FX,FY,FW,FH,dt);
 }
 
@@ -1278,13 +1248,11 @@ function carCarCollide(a,b){
 function resetBall(g){g.ball.x=g.FX+g.FW/2;g.ball.y=g.FY+g.FH/2;g.ball.vx=(Math.random()-.5)*3.8;g.ball.vy=(Math.random()-.5)*3.8;}
 
 function resetPositions(g){
+  // Reset ball
   resetBall(g);
-  // Vider sync balle pour non-hôte (évite position obsolète)
-  g.ball._sx=undefined; g.ball._sy=undefined; g.ball._svx=undefined; g.ball._svy=undefined;
-  g.player.x=multiMode?(myTeam===0?g.FX+g.FW*.22:g.FX+g.FW*.78):g.FX+g.FW*.22;
-  g.player.y=g.FY+g.FH/2; g.player.vx=0; g.player.vy=0;
-  g.player.angle=multiMode&&myTeam===1?Math.PI:0;
-  g._lastHUDSec=null; // force refresh timer HUD
+  // Reset player position
+  g.player.x=multiMode?(myTeam===0?g.FX+g.FW*.22:g.FX+g.FW*.78):g.FX+g.FW*.22;g.player.y=g.FY+g.FH/2;g.player.vx=0;g.player.vy=0;g.player.angle=myTeam===1?Math.PI:0;
+  // Reset bots
   g.bots.forEach((bot,i)=>{
     bot.x=g.FX+g.FW*(.72+i*.07);bot.y=g.FY+g.FH*(.28+i*.22);
     bot.vx=0;bot.vy=0;bot.angle=Math.PI;
@@ -1295,12 +1263,6 @@ function startGoalReset(g){
   g.running=false;
   cancelAnimationFrame(g.animFrame);
   resetPositions(g);
-  g._goalPending = false; // autorise la prochaine détection de but
-  // Rendre le jeu visible pendant le countdown (renderGame sans physics)
-  if(multiMode){
-    sendPlayerUpdate();
-    renderGame(); // affiche positions resetées
-  }
   const el=document.getElementById('goal-countdown');
   const num=document.getElementById('gc-num');
   el.classList.add('show');
@@ -1573,26 +1535,10 @@ function gameLoop(ts){
   const dt=Math.min((ts-game.lastTime)/1000,.05);
   game.lastTime=ts;updateGame(dt);renderGame();
   if(multiMode){
-    // Position joueur ~20fps
-    if(!game._lastPos||ts-game._lastPos>50){
-      sendPlayerUpdate();
-      game._lastPos=ts;
-    }
-    // Balle : hôte envoie à 20fps max, coordonnées normalisées
-    if(isHost&&socket&&socket.readyState===WebSocket.OPEN){
-      if(!game._lastBall||ts-game._lastBall>50){
-        socket.send(JSON.stringify({
-          type:'BALL_UPDATE',
-          ball:{
-            nx:(game.ball.x-game.FX)/game.FW,
-            ny:(game.ball.y-game.FY)/game.FH,
-            nvx:game.ball.vx/game.FW,
-            nvy:game.ball.vy/game.FH
-          },
-          timeLeft:game.timeLeft
-        }));
-        game._lastBall=ts;
-      }
+    // Envoyer inputs au serveur à ~30fps
+    if(!game._lastInput||ts-game._lastInput>33){
+      sendInputs();
+      game._lastInput=ts;
     }
   }
   game.animFrame=requestAnimationFrame(gameLoop);
@@ -1600,8 +1546,8 @@ function gameLoop(ts){
 
 function endGame(){
   if(!game)return;game.running=false;cancelAnimationFrame(game.animFrame);
-  const opp = multiMode ? (game.scoreOpp||0) : game.scoreB;
-  const win=game.scoreP>opp, draw=game.scoreP===opp;
+  const win=game.scoreP>game.scoreB;
+  const draw=game.scoreP===game.scoreB;
   let vakReward=0,xpReward=0;
   if(win){vakReward=15;xpReward=100+game.scoreP*20;}
   else if(draw){xpReward=40;}
@@ -1610,11 +1556,10 @@ function endGame(){
   if(xpReward>0){addXP(xpReward);}
   document.getElementById('end-result-text').textContent=win?'VICTOIRE !':draw?'ÉGALITÉ':'DÉFAITE';
   document.getElementById('end-result-text').className='er '+(win?'win':draw?'':'lose');
-  document.getElementById('end-final-score').textContent=`${game.scoreP} – ${opp}`;
+  document.getElementById('end-final-score').textContent=`${game.scoreP} – ${game.scoreB}`;
   document.getElementById('end-reward').textContent=win?`+${vakReward} VAK 🏆 · +${xpReward} XP`:`+${xpReward} XP`;
-  if(multiMode&&isHost&&socket&&socket.readyState===WebSocket.OPEN){
-    socket.send(JSON.stringify({type:'GAME_OVER',scoreA:game.scoreP,scoreB:opp}));
-  }
+  // Notifier le serveur
+  // En multi le serveur envoie GAME_OVER automatiquement
   document.getElementById('es').classList.add('show');
 }
 
@@ -1631,34 +1576,33 @@ function endToMenu(){
   showScreen('screen-main');
 }
 
-// ======= WEBSOCKET MULTIJOUEUR =======
+// ======= WEBSOCKET MULTIJOUEUR (CLIENT INPUT-ONLY) =======
+// Le serveur gère toute la physique. Le client envoie les inputs et affiche le GAME_STATE reçu.
+
 const WS_URL = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
   ? `ws://${location.host}`
   : `wss://${location.host}`;
 
 let socket = null;
-let isHost = false;
 let myPlayerId = null;
-let remotePlayers = {}; // { id: {x,y,angle,vx,vy,c1,c2,team,name} }
+let myTeam = 0;
 let multiMode = false;
-let myTeam = 0; // 0 = équipe A (gauche), 1 = équipe B (droite)
-let roomPlayerList = []; // liste complète des joueurs de la room
+let roomPlayerList = [];
+let remoteState = {}; // état reçu du serveur: {players, ball, scoreA, scoreB, timeLeft}
 
 function connectToServer(onReady) {
-  // Déjà connecté
   if (socket && socket.readyState === WebSocket.OPEN) { if (onReady) onReady(); return; }
-  // En cours de connexion: attendre qu'elle soit établie
   if (socket && socket.readyState === WebSocket.CONNECTING) {
     const prev = socket.onopen;
-    socket.onopen = (e) => { if(prev) prev(e); if (onReady) onReady(); };
+    socket.onopen = (e) => { if (prev) prev(e); if (onReady) onReady(); };
     return;
   }
   socket = new WebSocket(WS_URL);
   socket.onopen = () => { console.log('WS connecté'); if (onReady) onReady(); };
   socket.onerror = () => notify('❌ Impossible de joindre le serveur');
   socket.onclose = () => { socket = null; if (multiMode) notify('⚠️ Déconnecté du serveur'); };
-  socket.onmessage = (event) => {
-    let msg; try { msg = JSON.parse(event.data); } catch { return; }
+  socket.onmessage = (e) => {
+    let msg; try { msg = JSON.parse(e.data); } catch { return; }
     handleServerMsg(msg);
   };
 }
@@ -1666,88 +1610,116 @@ function connectToServer(onReady) {
 function handleServerMsg(msg) {
   if (msg.type === 'SERVER_CREATED') {
     document.getElementById('srv-id-display').textContent = msg.serverId;
-    isHost = true;
     myPlayerId = msg.playerId;
     notify('✅ Serveur créé ! ID : ' + msg.serverId);
   }
 
   if (msg.type === 'JOINED') {
-    isHost = msg.isHost ?? false;
     myPlayerId = msg.playerId;
+    myTeam = msg.team ?? 0;
     notify('✅ Connecté au serveur ' + msg.serverId);
     showScreen('screen-create-server');
     S.map = msg.map; S.time = msg.time;
   }
 
-  if (msg.type === 'YOU_ARE_HOST') {
-    isHost = true;
-    notify('👑 Vous êtes maintenant l\'hôte !');
-    document.getElementById('launch-multi-btn').style.display = '';
-  }
-
   if (msg.type === 'ROOM_UPDATE') {
     roomPlayerList = msg.players || [];
-    const teamA = roomPlayerList.filter(p=>p.team===0);
-    const teamB = roomPlayerList.filter(p=>p.team===1);
-    const mkList = (arr) => arr.map(p=>`• ${p.name}${p.id===myPlayerId?' <span style="color:var(--accent)">(Vous)</span>':''}` ).join('<br>') || '(vide)';
+    const teamA = roomPlayerList.filter(p => p.team === 0);
+    const teamB = roomPlayerList.filter(p => p.team === 1);
+    const mkList = (arr) => arr.map(p =>
+      `• ${p.name}${p.id === myPlayerId ? ' <span style="color:var(--accent)">(Vous)</span>' : ''}`
+    ).join('<br>') || '(vide)';
     document.getElementById('srv-members-list').innerHTML =
-      '<span style="color:var(--accent);font-size:10px">ÉQUIPE A 🔵</span><br>'+mkList(teamA)+
-      '<br><span style="color:var(--red);font-size:10px;margin-top:4px;display:block">ÉQUIPE B 🔴</span><br>'+mkList(teamB);
+      '<span style="color:var(--accent);font-size:10px">ÉQUIPE A 🔵</span><br>' + mkList(teamA) +
+      '<br><span style="color:var(--red);font-size:10px;margin-top:4px;display:block">ÉQUIPE B 🔴</span><br>' + mkList(teamB);
     document.getElementById('srv-member-count').textContent = roomPlayerList.length;
     if (msg.map !== undefined) S.map = msg.map;
     if (msg.time !== undefined) S.time = msg.time;
-    document.getElementById('launch-multi-btn').style.display = isHost ? '' : 'none';
+    document.getElementById('launch-multi-btn').style.display = '';
   }
 
   if (msg.type === 'GAME_START') {
     S.map = msg.map; S.time = msg.time;
     multiMode = true;
-    remotePlayers = {};
+    remoteState = {};
     roomPlayerList = msg.players || [];
-    // Trouver mon équipe
     const me = roomPlayerList.find(p => p.id === myPlayerId);
     myTeam = me ? me.team : 0;
-    // Noms des équipes pour le HUD
-    const teamA = roomPlayerList.filter(p=>p.team===0).map(p=>p.name).join(' & ') || 'ÉQUIPE A';
-    const teamB = roomPlayerList.filter(p=>p.team===1).map(p=>p.name).join(' & ') || 'ÉQUIPE B';
+    const teamA = roomPlayerList.filter(p => p.team === 0).map(p => p.name).join(' & ') || 'ÉQUIPE A';
+    const teamB = roomPlayerList.filter(p => p.team === 1).map(p => p.name).join(' & ') || 'ÉQUIPE B';
     document.getElementById('hud-team-a').textContent = teamA;
     document.getElementById('hud-team-b').textContent = teamB;
     startGame();
   }
 
-  if (msg.type === 'PLAYER_UPDATE') {
-    if (msg.id && msg.id === myPlayerId) return; // ignore notre propre position
-    if (msg.id) remotePlayers[msg.id] = msg;
-  }
+  // GAME_STATE: état complet envoyé par le serveur à ~20fps
+  if (msg.type === 'GAME_STATE') {
+    remoteState = msg;
+    if (!game) return;
 
-  if (msg.type === 'BALL_UPDATE') {
-    if (game && !isHost) {
-      // Dénormaliser la balle selon le terrain LOCAL
-      game.ball._sx  = game.FX + msg.ball.nx * game.FW;
-      game.ball._sy  = game.FY + msg.ball.ny * game.FH;
-      game.ball._svx = msg.ball.nvx * game.FW;
-      game.ball._svy = msg.ball.nvy * game.FH;
-      if (msg.timeLeft !== undefined && Math.abs(game.timeLeft - msg.timeLeft) > 1) {
-        game.timeLeft = msg.timeLeft;
-      }
-    }
-  }
+    // Sync timer
+    game.timeLeft = msg.timeLeft;
 
-  if (msg.type === 'GOAL') {
-    if (game) {
-      // Scores: scoreA = equipe 0 (gauche), scoreB = equipe 1 (droite)
-      const myScore  = myTeam === 0 ? msg.scoreA : msg.scoreB;
-      const oppScore = myTeam === 0 ? msg.scoreB : msg.scoreA;
+    // Sync score
+    const myScore  = myTeam === 0 ? msg.scoreA : msg.scoreB;
+    const oppScore = myTeam === 0 ? msg.scoreB : msg.scoreA;
+    if (myScore !== game.scoreP || oppScore !== game.scoreOpp) {
       game.scoreP   = myScore;
       game.scoreOpp = oppScore;
       document.getElementById('score-player').textContent = myScore;
       document.getElementById('score-bot').textContent    = oppScore;
-      const iScored = (myTeam === 0 && msg.team === 0) || (myTeam === 1 && msg.team === 1);
-      showGoal(iScored ? 'BUT ! 🎉' : 'ADVERSAIRE !', iScored ? 'var(--accent)' : 'var(--red)');
-      // Les deux (hôte ET non-hôte) font le reset visuel ici
-      // Le flag _goalPending empêche l'hôte de re-déclencher un but pendant le countdown
-      startGoalReset(game);
     }
+
+    // Sync balle (coordonnées normalisées → pixels locaux)
+    if (msg.ball) {
+      game.ball.x  = game.FX + msg.ball.x * game.FW;
+      game.ball.y  = game.FY + msg.ball.y * game.FH;
+      game.ball.vx = msg.ball.vx * game.FW;
+      game.ball.vy = msg.ball.vy * game.FH;
+    }
+
+    // Sync joueurs distants
+    if (msg.players) {
+      msg.players.forEach(p => {
+        if (p.id === myPlayerId) {
+          // Notre propre position: le serveur fait autorité, on corrige si trop décalé
+          const sx = game.FX + p.x * game.FW;
+          const sy = game.FY + p.y * game.FH;
+          const dist = Math.sqrt((game.player.x-sx)**2 + (game.player.y-sy)**2);
+          if (dist > game.FW * 0.08) { // correction si écart > 8% du terrain
+            game.player.x = sx;
+            game.player.y = sy;
+          }
+        } else {
+          // Joueurs distants: stocker position normalisée pour affichage
+          if (!game.remotePlayers) game.remotePlayers = {};
+          game.remotePlayers[p.id] = p;
+        }
+      });
+    }
+  }
+
+  if (msg.type === 'GOAL') {
+    if (!game) return;
+    const iScored = (myTeam === 0 && msg.team === 0) || (myTeam === 1 && msg.team === 1);
+    showGoal(iScored ? 'BUT ! 🎉' : 'ADVERSAIRE !', iScored ? 'var(--accent)' : 'var(--red)');
+    // Pause visuelle (le serveur gère le vrai reset)
+    game.running = false;
+    cancelAnimationFrame(game.animFrame);
+    const el = document.getElementById('goal-countdown');
+    const num = document.getElementById('gc-num');
+    el.classList.add('show');
+    let c = 3; num.textContent = c;
+    const iv = setInterval(() => {
+      c--;
+      if (c === 0) { num.textContent = 'GO!'; num.style.color = 'var(--accent2)'; }
+      else if (c < 0) {
+        clearInterval(iv);
+        el.classList.remove('show');
+        num.style.color = 'var(--accent)';
+        if (game) { game.running = true; game.lastTime = performance.now(); gameLoop(performance.now()); }
+      } else { num.textContent = c; num.style.color = '#fff'; }
+    }, 1000);
   }
 
   if (msg.type === 'GAME_OVER') {
@@ -1761,92 +1733,79 @@ function handleServerMsg(msg) {
   }
 }
 
-// Override openCreateServer pour le vrai WS
 function openCreateServer() {
   document.getElementById('srv-id-display').textContent = '...';
   document.getElementById('srv-members-list').innerHTML = `• ${S.playerName} <span style="color:var(--accent)">(Vous)</span>`;
   document.getElementById('srv-member-count').textContent = '1';
   connectToServer(() => {
     socket.send(JSON.stringify({
-      type: 'CREATE_SERVER',
-      name: S.playerName,
-      map: S.map,
-      time: S.time
+      type: 'CREATE_SERVER', name: S.playerName,
+      map: S.map, time: S.time,
+      c1: S.car.c1, c2: S.car.c2, model: S.car.model, wheelStyle: S.car.wheel
     }));
   });
 }
 
-// Override joinServer pour le vrai WS
 function joinServer() {
   const id = document.getElementById('join-server-id').value.trim().toUpperCase();
   const errEl = document.getElementById('join-error');
-  if (id.length < 4) { errEl.textContent = '❌ ID invalide (6 caractères)'; return; }
+  if (id.length < 4) { errEl.textContent = '❌ ID invalide'; return; }
   errEl.textContent = '';
   connectToServer(() => {
     socket.send(JSON.stringify({
-      type: 'JOIN_SERVER',
-      serverId: id,
-      name: S.playerName
+      type: 'JOIN_SERVER', serverId: id, name: S.playerName,
+      c1: S.car.c1, c2: S.car.c2, model: S.car.model, wheelStyle: S.car.wheel
     }));
   });
 }
 
-// Override launchMultiGame
 function launchMultiGame() {
-  if (!socket || !isHost) { notify('❌ Seul l\'hôte peut lancer la partie'); return; }
+  if (!socket) { notify('❌ Non connecté'); return; }
   socket.send(JSON.stringify({ type: 'LAUNCH' }));
 }
 
-// Quand on change map/temps en tant qu'hôte, notifier les autres
 function selectSrvMapAndSync(i) {
   selectSrvMap(i);
-  if (socket && isHost) socket.send(JSON.stringify({ type: 'HOST_CONFIG', map: i }));
+  if (socket) socket.send(JSON.stringify({ type: 'HOST_CONFIG', map: i }));
 }
 function selectSrvTimeAndSync(s) {
   selectSrvTime(s);
-  if (socket && isHost) socket.send(JSON.stringify({ type: 'HOST_CONFIG', time: s }));
+  if (socket) socket.send(JSON.stringify({ type: 'HOST_CONFIG', time: s }));
 }
 
-// Envoi position pendant la partie
-function sendPlayerUpdate() {
+// Envoi des inputs au serveur à ~30fps
+function sendInputs() {
   if (!socket || !game || socket.readyState !== WebSocket.OPEN) return;
-  // Coordonnées NORMALISÉES (0→1) par rapport au terrain pour être indépendant de la résolution
-  const nx = (game.player.x - game.FX) / game.FW;
-  const ny = (game.player.y - game.FY) / game.FH;
-  const nvx = game.player.vx / game.FW;
-  const nvy = game.player.vy / game.FH;
   socket.send(JSON.stringify({
-    type: 'PLAYER_UPDATE',
-    nx, ny, nvx, nvy,
-    angle: game.player.angle,
-    c1: S.car.c1, c2: S.car.c2,
-    model: S.car.model,
-    decal: S.car.decal,
-    wheelStyle: S.car.wheel,
-    team: myTeam, name: S.playerName
+    type: 'INPUT',
+    input: {
+      up:    !!game._keys[S.keys.up],
+      down:  !!game._keys[S.keys.down],
+      left:  !!game._keys[S.keys.left],
+      right: !!game._keys[S.keys.right],
+      boost: !!game._keys[S.keys.boost]
+    }
   }));
 }
 
-// Dessin des joueurs distants
+// Dessin des joueurs distants (positions normalisées → pixels locaux)
 function drawRemotePlayers(ctx) {
-  if(!game) return;
-  Object.values(remotePlayers).forEach((rp) => {
-    if (!rp || rp.nx === undefined) return;
-    // Dénormaliser: coordonnées relatives au terrain LOCAL
-    const rx = game.FX + rp.nx * game.FW;
-    const ry = game.FY + rp.ny * game.FH;
-    const rvx = (rp.nvx||0) * game.FW;
-    const rvy = (rp.nvy||0) * game.FH;
-    const c1 = rp.c1 || (rp.team === 1 ? '#cc2200' : '#00b4ff');
-    const c2 = rp.c2 || '#ffffff';
+  if (!game || !game.remotePlayers) return;
+  Object.values(game.remotePlayers).forEach(rp => {
+    if (!rp || rp.x === undefined) return;
+    const rx  = game.FX + rp.x  * game.FW;
+    const ry  = game.FY + rp.y  * game.FH;
+    const rvx = (rp.vx || 0) * game.FW;
+    const rvy = (rp.vy || 0) * game.FH;
+    const c1  = rp.c1 || (rp.team === 1 ? '#cc2200' : '#00b4ff');
+    const c2  = rp.c2 || '#ffffff';
     if (rp._wSpin === undefined) rp._wSpin = 0;
-    rp._wSpin += Math.sqrt(rvx**2+rvy**2)*0.0008;
+    rp._wSpin += Math.sqrt(rvx ** 2 + rvy ** 2) * 0.0008;
     drawGameCar(ctx, {
       x: rx, y: ry, angle: rp.angle || 0,
       w: game.CW, h: game.CH,
       trail: [], vx: rvx, vy: rvy,
-      model: rp.model ?? 0,
-      wheelStyle: rp.wheelStyle ?? 0,
+      model: rp.model ?? 0, wheelStyle: rp.wheelStyle ?? 0,
     }, c1, c2, rp._wSpin, false);
     if (rp.name) {
       ctx.save();
@@ -1854,30 +1813,16 @@ function drawRemotePlayers(ctx) {
       ctx.textAlign = 'center';
       const tw = ctx.measureText(rp.name).width;
       ctx.fillStyle = rp.team === 1 ? 'rgba(200,40,0,.75)' : 'rgba(0,100,200,.75)';
-      ctx.fillRect(rx - tw/2 - 4, ry - game.CH*.85 - 16, tw + 8, 16);
+      ctx.fillRect(rx - tw / 2 - 4, ry - game.CH * .85 - 16, tw + 8, 16);
       ctx.fillStyle = '#fff';
-      ctx.fillText(rp.name, rx, ry - game.CH*.85 - 4);
+      ctx.fillText(rp.name, rx, ry - game.CH * .85 - 4);
       ctx.restore();
     }
   });
 }
 
-// Collision ballon avec joueurs distants (côté hôte seulement)
-function collideRemotePlayersWithBall() {
-  if (!isHost || !game) return;
-  Object.values(remotePlayers).forEach(rp => {
-    if (!rp || rp.nx === undefined) return;
-    const rx = game.FX + rp.nx * game.FW;
-    const ry = game.FY + rp.ny * game.FH;
-    const rvx = (rp.nvx||0) * game.FW;
-    const rvy = (rp.nvy||0) * game.FH;
-    const fakecar = {x: rx, y: ry, vx: rvx, vy: rvy, w: game.CW, h: game.CH};
-    ballCollide(fakecar, game.ball);
-  });
-}
-
 // ======= INIT =======
-updateVak();updatePlayerBar();renderMenuCar();
+updateVak(); updatePlayerBar(); renderMenuCar();
 </script>
 </body>
 </html>
