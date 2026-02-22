@@ -99,6 +99,62 @@ body{font-family:'Rajdhani',sans-serif;background:var(--bg);color:var(--text);ov
 /* ping indicator */
 #ping-display{position:fixed;bottom:14px;right:14px;z-index:200;font-family:'Orbitron',sans-serif;font-size:10px;color:rgba(255,255,255,.3);letter-spacing:1px;display:none;}
 #ping-display.show{display:block;}
+
+@media(pointer:coarse){#hud-bs-wrap{display:none;}}
+
+/* ============================================================
+   CONTRÔLES MOBILES — Joystick + Boost
+   ============================================================ */
+#mobile-controls{
+  position:fixed;bottom:0;left:0;right:0;height:220px;
+  z-index:65;display:none;pointer-events:none;
+}
+#joy-zone{
+  position:absolute;left:24px;bottom:28px;
+  width:130px;height:130px;
+  pointer-events:auto;touch-action:none;
+}
+#joy-base{
+  position:absolute;inset:0;border-radius:50%;
+  background:rgba(255,255,255,0.07);
+  border:2px solid rgba(255,255,255,0.20);
+  backdrop-filter:blur(3px);
+}
+#joy-stick{
+  position:absolute;
+  width:54px;height:54px;border-radius:50%;
+  background:radial-gradient(circle at 35% 35%,rgba(255,255,255,0.6),rgba(0,180,255,0.4));
+  border:2px solid rgba(0,180,255,0.65);
+  box-shadow:0 0 16px rgba(0,180,255,0.45);
+  left:50%;top:50%;
+  transform:translate(-50%,-50%);
+  pointer-events:none;
+}
+#boost-btn{
+  position:absolute;right:28px;bottom:28px;
+  width:90px;height:90px;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,rgba(255,190,0,0.65),rgba(255,70,0,0.5));
+  border:2px solid rgba(255,140,0,0.65);
+  box-shadow:0 0 22px rgba(255,100,0,0.4),inset 0 0 10px rgba(255,200,0,0.12);
+  display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:3px;
+  pointer-events:auto;touch-action:none;
+  cursor:pointer;
+  backdrop-filter:blur(4px);
+}
+#boost-btn.active{
+  transform:scale(0.92);
+  box-shadow:0 0 34px rgba(255,160,0,0.8),inset 0 0 18px rgba(255,220,0,0.3);
+  background:radial-gradient(circle at 35% 30%,rgba(255,230,0,0.85),rgba(255,120,0,0.7));
+}
+.boost-icon{font-size:28px;line-height:1;}
+.boost-label{
+  font-family:'Orbitron',sans-serif;font-size:9px;font-weight:700;
+  letter-spacing:2px;color:rgba(255,255,255,0.85);
+}
+#mobile-controls.ingame{display:block;}
+@media(pointer:coarse){#hud-bs-wrap{display:none;}}
+
 </style>
 </head>
 <body>
@@ -238,7 +294,7 @@ body{font-family:'Rajdhani',sans-serif;background:var(--bg);color:var(--text);ov
     <div class="hud-div"></div>
     <div><div class="hud-t" id="hud-team-b">BOTS</div><div class="hud-n" id="score-bot">0</div></div>
   </div>
-  <div class="hud-bs">
+  <div class="hud-bs" id="hud-bs-wrap">
     <div class="hud-bsb"><div class="hud-bsf" id="boost-fill" style="height:80%"></div></div>
     <div class="hud-bsl">BOOST</div>
   </div>
@@ -797,6 +853,7 @@ function _launchGameUI() {
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById('game-canvas').style.display='block';
   document.getElementById('game-hud').style.display='block';
+  showMobileControls(true);
   document.getElementById('player-bar').style.display='none';
   document.getElementById('vak-display').style.display='none';
   if(!multiMode){
@@ -1228,6 +1285,7 @@ function endToMenu(){
   document.getElementById('pm').classList.remove('show');
   document.getElementById('game-canvas').style.display='none';
   document.getElementById('game-hud').style.display='none';
+  showMobileControls(false);
   document.getElementById('score-player').textContent='0';
   document.getElementById('score-bot').textContent='0';
   document.getElementById('ping-display').classList.remove('show');
@@ -1480,10 +1538,136 @@ function drawRemotePlayers(ctx){
   });
 }
 
+
+// ============================================================
+// CONTRÔLES MOBILES — Joystick analogique + Bouton boost
+// ============================================================
+(function(){
+  const STICK_MAX  = 42;
+  const DEAD_ZONE  = 0.12;
+
+  let joyActive = false;
+  let joyTouchId = null;
+  let joyOriginX = 0, joyOriginY = 0;
+  let joydx = 0, joydy = 0;
+
+  const zone  = document.getElementById('joy-zone');
+  const stick = document.getElementById('joy-stick');
+  const boostBtn = document.getElementById('boost-btn');
+
+  function setStick(dx, dy) {
+    stick.style.transform = `translate(calc(-50% + ${dx*STICK_MAX}px), calc(-50% + ${dy*STICK_MAX}px))`;
+  }
+
+  function applyJoy() {
+    keys[S.keys.up]    = joyActive && joydy < -DEAD_ZONE;
+    keys[S.keys.down]  = joyActive && joydy >  DEAD_ZONE;
+    keys[S.keys.left]  = joyActive && joydx < -DEAD_ZONE;
+    keys[S.keys.right] = joyActive && joydx >  DEAD_ZONE;
+  }
+
+  zone.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (joyActive) return;
+    const t = e.changedTouches[0];
+    joyTouchId = t.identifier;
+    joyActive = true;
+    const rect = zone.getBoundingClientRect();
+    joyOriginX = rect.left + rect.width  / 2;
+    joyOriginY = rect.top  + rect.height / 2;
+    joydx = 0; joydy = 0;
+    setStick(0, 0);
+    applyJoy();
+  }, { passive: false });
+
+  zone.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier !== joyTouchId) continue;
+      const rawX = t.clientX - joyOriginX;
+      const rawY = t.clientY - joyOriginY;
+      const dist = Math.sqrt(rawX*rawX + rawY*rawY);
+      const clamp = Math.min(dist, STICK_MAX);
+      const angle = Math.atan2(rawY, rawX);
+      joydx = (clamp / STICK_MAX) * Math.cos(angle);
+      joydy = (clamp / STICK_MAX) * Math.sin(angle);
+      setStick(joydx, joydy);
+      applyJoy();
+    }
+  }, { passive: false });
+
+  function joyEnd(e) {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === joyTouchId) {
+        joyActive = false; joyTouchId = null;
+        joydx = 0; joydy = 0;
+        setStick(0, 0);
+        applyJoy();
+        break;
+      }
+    }
+  }
+  zone.addEventListener('touchend',    joyEnd, { passive: false });
+  zone.addEventListener('touchcancel', joyEnd, { passive: false });
+
+  let boostTouchId = null;
+  boostBtn.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (boostTouchId !== null) return;
+    boostTouchId = e.changedTouches[0].identifier;
+    keys[S.keys.boost] = true;
+    boostBtn.classList.add('active');
+  }, { passive: false });
+
+  function boostEnd(e) {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === boostTouchId) {
+        boostTouchId = null;
+        keys[S.keys.boost] = false;
+        boostBtn.classList.remove('active');
+        break;
+      }
+    }
+  }
+  boostBtn.addEventListener('touchend',    boostEnd, { passive: false });
+  boostBtn.addEventListener('touchcancel', boostEnd, { passive: false });
+})();
+
+function showMobileControls(visible) {
+  const mc = document.getElementById('mobile-controls');
+  if (!mc) return;
+  const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+  if (visible && isTouch) mc.classList.add('ingame');
+  else mc.classList.remove('ingame');
+}
+
 // =====================================================================
 // INIT
 // =====================================================================
 updateVak(); updatePlayerBar(); renderMenuCar();
 </script>
+
+<!-- ========== CONTRÔLES MOBILES ========== -->
+<div id="mobile-controls">
+  <div id="joy-zone">
+    <div id="joy-base">
+      <svg style="position:absolute;inset:0;width:100%;height:100%;opacity:.3" viewBox="0 0 130 130">
+        <polygon points="65,8 73,24 57,24" fill="white"/>
+        <polygon points="65,122 73,106 57,106" fill="white"/>
+        <polygon points="8,65 24,57 24,73" fill="white"/>
+        <polygon points="122,65 106,57 106,73" fill="white"/>
+      </svg>
+    </div>
+    <div id="joy-stick"></div>
+  </div>
+  <div id="boost-btn">
+    <span class="boost-icon">⚡</span>
+    <span class="boost-label">BOOST</span>
+  </div>
+</div>
+
 </body>
 </html>
