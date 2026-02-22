@@ -35,9 +35,16 @@ function createBall() {
 function resetBall(room) { room.ball = createBall(); }
 
 function resetPlayers(room) {
-  Object.values(room.players).forEach(p => {
-    p.x = p.team === 0 ? 0.22 : 0.78;
-    p.y = 0.5; p.vx = 0; p.vy = 0;
+  // Positions initiales alignées avec le terrain client (FX=9%, FW=82%, donc centre=50%)
+  const players = Object.values(room.players);
+  players.forEach((p, i) => {
+    // Distribuer les joueurs de la même équipe verticalement
+    const sameTeam = players.filter(q => q.team === p.team);
+    const idx = sameTeam.indexOf(p);
+    const yOffset = sameTeam.length > 1 ? (idx - 0.5) * 0.12 : 0;
+    p.x = p.team === 0 ? 0.28 : 0.72;
+    p.y = 0.5 + yOffset;
+    p.vx = 0; p.vy = 0;
     p.angle = p.team === 1 ? Math.PI : 0;
   });
 }
@@ -63,15 +70,18 @@ function tickRoom(room) {
   if (!room.started || room.paused) return;
   const dt = TICK_MS / 1000;
 
-  // Timer
+  // Timer (guard contre double déclenchement)
   room.timeLeft -= dt;
-  if (room.timeLeft <= 0) {
+  if (room.timeLeft <= 0 && !room._gameOverSent) {
     room.timeLeft = 0;
     room.started = false;
+    room._gameOverSent = true;
     clearInterval(room.ticker);
+    room.ticker = null;
     broadcast(room, { type: 'GAME_OVER', scoreA: room.scoreA, scoreB: room.scoreB });
     return;
   }
+  if (room._gameOverSent) return;
 
   // Joueurs
   Object.values(room.players).forEach(p => {
@@ -97,11 +107,14 @@ function tickRoom(room) {
     if (ps > 0.005) p.angle = Math.atan2(p.vy, p.vx);
     p.x += p.vx * dt; p.y += p.vy * dt;
 
-    const mx = CAR_W/2, my = CAR_H/2;
-    if (p.x < mx)   { p.x = mx;   p.vx =  Math.abs(p.vx)*0.3; }
-    if (p.x > 1-mx) { p.x = 1-mx; p.vx = -Math.abs(p.vx)*0.3; }
-    if (p.y < my)   { p.y = my;   p.vy =  Math.abs(p.vy)*0.3; }
-    if (p.y > 1-my) { p.y = 1-my; p.vy = -Math.abs(p.vy)*0.3; }
+    // Clamp dans le terrain (marges identiques côté client)
+    const mx = CAR_W * 0.5, my = CAR_H * 0.5;
+    const xMin = 0.09 + mx, xMax = 0.91 - mx; // ≈ FX/FW côté client (82% wide)
+    const yMin = 0.14 + my, yMax = 0.78 - my; // ≈ FY/FH côté client
+    if (p.x < xMin) { p.x = xMin; p.vx =  Math.abs(p.vx)*0.3; }
+    if (p.x > xMax) { p.x = xMax; p.vx = -Math.abs(p.vx)*0.3; }
+    if (p.y < yMin) { p.y = yMin; p.vy =  Math.abs(p.vy)*0.3; }
+    if (p.y > yMax) { p.y = yMax; p.vy = -Math.abs(p.vy)*0.3; }
   });
 
   // Collisions balle
@@ -113,31 +126,34 @@ function tickRoom(room) {
   b.vx *= bfric; b.vy *= bfric;
   b.x += b.vx * dt; b.y += b.vy * dt;
 
-  if (b.y - b.r < 0)   { b.y = b.r;     b.vy =  Math.abs(b.vy)*BNC; }
-  if (b.y + b.r > 1)   { b.y = 1-b.r;   b.vy = -Math.abs(b.vy)*BNC; }
-
+  // Balle: limites alignées avec le terrain client
+  const FIELD_X1 = 0.09, FIELD_X2 = 0.91;
+  const FIELD_Y1 = 0.14, FIELD_Y2 = 0.78;
   const gy1 = 0.5 - GOAL_H/2, gy2 = 0.5 + GOAL_H/2;
 
-  if (b.x - b.r < 0) {
+  if (b.y - b.r < FIELD_Y1) { b.y = FIELD_Y1 + b.r; b.vy = Math.abs(b.vy)*BNC + (Math.random()-0.5)*0.02; }
+  if (b.y + b.r > FIELD_Y2) { b.y = FIELD_Y2 - b.r; b.vy = -Math.abs(b.vy)*BNC + (Math.random()-0.5)*0.02; }
+
+  if (b.x - b.r < FIELD_X1) {
     if (b.y > gy1 && b.y < gy2) { room.scoreB++; handleGoal(room, 1); return; }
-    b.x = b.r; b.vx = Math.abs(b.vx)*BNC;
+    b.x = FIELD_X1 + b.r; b.vx = Math.abs(b.vx)*BNC;
   }
-  if (b.x + b.r > 1) {
+  if (b.x + b.r > FIELD_X2) {
     if (b.y > gy1 && b.y < gy2) { room.scoreA++; handleGoal(room, 0); return; }
-    b.x = 1-b.r; b.vx = -Math.abs(b.vx)*BNC;
+    b.x = FIELD_X2 - b.r; b.vx = -Math.abs(b.vx)*BNC;
   }
 
   room._btick = (room._btick||0) + 1;
-  if (room._btick % 2 === 0) broadcastState(room); // ~30fps
+  if (room._btick % 3 === 0) broadcastState(room); // ~20fps = suffisant avec interpolation client
 }
 
 function handleGoal(room, team) {
   room.paused = true;
   broadcast(room, { type: 'GOAL', team, scoreA: room.scoreA, scoreB: room.scoreB });
+  // Envoyer immédiatement les nouvelles positions reset
+  setTimeout(() => { if(rooms[room.id]){ resetBall(room); resetPlayers(room); broadcastState(room); } }, 100);
   setTimeout(() => {
     if (!rooms[room.id]) return;
-    resetBall(room);
-    resetPlayers(room);
     room.paused = false;
     broadcastState(room);
   }, 3500);
@@ -257,6 +273,15 @@ setInterval(()=>{
     if(Object.keys(rooms[id].players).length===0){ clearInterval(rooms[id].ticker); delete rooms[id]; }
   });
 }, 10*60*1000);
+
+// Keep-alive: ping toutes les 20s pour éviter la coupure Render
+setInterval(() => {
+  wss.clients.forEach(ws => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.ping();
+    }
+  });
+}, 20000);
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, ()=>console.log(`✅ Serveur lancé sur port ${PORT}`));
