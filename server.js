@@ -128,7 +128,7 @@ function tickRoom(room) {
   }
 
   room._btick = (room._btick||0) + 1;
-  if (room._btick % 3 === 0) broadcastState(room);
+  if (room._btick % 2 === 0) broadcastState(room); // ~30fps
 }
 
 function handleGoal(room, team) {
