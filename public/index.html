@@ -282,8 +282,15 @@ body{
 #boost-btn.active{transform:scale(0.92);box-shadow:0 0 32px rgba(192,160,0,.65);background:radial-gradient(circle at 35% 30%,rgba(220,180,0,.75),rgba(192,100,0,.6));}
 .boost-icon{font-size:26px;line-height:1;}
 .boost-label{font-family:'Share Tech Mono',monospace;font-size:8px;letter-spacing:2px;color:rgba(255,255,255,.75);}
-#mobile-controls.ingame{display:block;}
-@media(pointer:coarse){#hud-bs-wrap{display:none;}}
+/* Only ever show on genuine touch/coarse-pointer devices */
+#mobile-controls.ingame{display:none;}
+@media(pointer:coarse),(hover:none){
+  #mobile-controls.ingame{display:block;}
+  #hud-bs-wrap{display:none;}
+}
+@media(pointer:fine),(hover:hover){
+  #mobile-controls{display:none !important;}
+}
 
 /* ─── MAIN MENU LAYOUT (style Hellion) ───────────── */
 #screen-main{
@@ -354,6 +361,19 @@ body{
 }
 
 /* ─── RESPONSIVE ─────────────────────────────────── */
+
+/* Tablet / small desktop */
+@media(max-width:1024px){
+  .menu-left{
+    padding:0 0 clamp(40px,7vh,80px) clamp(24px,4vw,56px);
+    width:clamp(260px,38vw,480px);
+  }
+  .menu-right{
+    padding:clamp(40px,7vh,80px) clamp(24px,4vw,48px) clamp(40px,7vh,80px) clamp(18px,3vw,36px);
+  }
+}
+
+/* Mobile */
 @media(max-width:720px){
   body{overflow-y:auto;height:auto;min-height:100vh;}
   .screen{position:relative;min-height:100vh;justify-content:flex-start;overflow-y:auto;}
@@ -373,19 +393,27 @@ body{
   .sub-wrap{width:96vw;}
   #screen-play-solo,#screen-play-multi,#screen-play,#screen-garage,#screen-shop,#screen-settings,
   #screen-create-server,#screen-join-server{
-    padding-top:48px;padding-bottom:80px;gap:12px;
+    padding-top:48px !important;padding-bottom:80px !important;gap:12px;
   }
   #screen-play{padding:20px 10px 80px !important;}
   #screen-play-solo .rlp,#screen-play-multi .rlp{width:96vw !important;padding:14px !important;}
   .mc{width:calc(33% - 8px) !important;min-width:80px;}
   .mt{height:clamp(46px,12vw,88px) !important;}
   .mn{font-size:9px !important;padding:4px 6px !important;}
-  #screen-garage>div{flex-direction:column !important;width:96vw !important;}
+  #screen-garage .garage-inner{flex-direction:column !important;width:96vw !important;}
   #screen-garage canvas{width:100% !important;height:auto !important;}
   #shop-grid{grid-template-columns:repeat(2,1fr) !important;}
   .pp{width:92vw;padding:24px 18px;}
   .vak-bar{font-size:11px;padding:6px 10px;top:8px;right:8px;}
   .plbar{padding:7px 12px;gap:8px;}
+  #screen-create-server .cs-inner{flex-direction:column !important;}
+}
+
+/* Very small screens */
+@media(max-width:400px){
+  .mbtn{font-size:18px;letter-spacing:3px;padding:12px 16px;}
+  .logo{font-size:36px;}
+  #shop-grid{grid-template-columns:repeat(2,1fr) !important;}
 }
 
 /* ─── PLAY MODE CARDS ─────────────────────────────── */
@@ -413,14 +441,21 @@ body{
 #screen-play-solo,#screen-play-multi,#screen-garage,
 #screen-settings,#screen-create-server,#screen-join-server{
   overflow-y:auto;
-  padding:clamp(20px,5vh,60px) 20px clamp(60px,8vh,100px);
+  padding:clamp(16px,4vh,50px) clamp(12px,2vw,40px) clamp(50px,8vh,90px);
 }
+.sub-wrap{
+  width:min(700px,96vw);
+  display:flex;flex-direction:column;gap:14px;align-items:center;
+}
+.sub-wrap .rlp{width:100%;}
 #screen-play-solo .sub-wrap,
 #screen-garage .sub-wrap,
 #screen-settings .sub-wrap{
   align-items:center;
   text-align:left;
 }
+/* Garage inner flex */
+.garage-inner{display:flex;gap:18px;width:min(860px,96vw);}
 </style>
 </head>
 <body>
@@ -625,8 +660,8 @@ body{
 <div class="screen" id="screen-garage">
 <div class="sub-wrap">
 <div class="screen-title">GARAGE</div>
-  <div style="display:flex;gap:18px;width:860px;max-width:96vw">
-    <div style="display:flex;flex-direction:column;align-items:center;min-width:260px">
+  <div class="garage-inner">
+    <div style="display:flex;flex-direction:column;align-items:center;min-width:240px;flex-shrink:0;">
       <div class="rlp" id="garage-car-wrap" style="padding:12px;width:100%;margin-bottom:10px"><canvas id="garageCanvas" style="width:100%;height:auto;display:block;"></canvas></div>
       <button class="pbtn" style="font-size:13px;padding:11px 28px" onclick="applyGarage()">APPLIQUER ✓</button>
     </div>
@@ -1996,91 +2031,146 @@ function updateGame(dt) {
   // ---- BOTS AI (solo seulement) ----
   if(!multiMode){
     g.bots.forEach((bot,bi)=>{
-      bot.aiTimer-=dt;
-      const ball=g.ball;
-      const {FX,FY,FW,FH}=g;
-      // Buts : joueur tire vers droite (FX+FW), bots tirent vers gauche (FX)
-      const playerGoalX = FX;        // but à défendre (gauche)
-      const botGoalX    = FX+FW;     // but à attaquer (droite)
-      const goalCY      = FY+FH/2;
+      bot.aiTimer -= dt;
+      const ball = g.ball;
+      const {FX,FY,FW,FH} = g;
 
-      if(bot.aiTimer<=0){
-        bot.aiTimer = .18 + Math.random()*.22;
+      // Buts : joueur attaque à droite → FX+FW, bots attaquent à gauche → FX
+      const botAttackGoalX  = FX;         // but du joueur (cible des bots)
+      const botDefendGoalX  = FX+FW;      // but des bots (à défendre)
+      const goalCY          = FY+FH/2;
+
+      // ---- Décision IA (toutes les 150-250ms) ----
+      if(bot.aiTimer <= 0){
+        bot.aiTimer = 0.15 + Math.random()*0.18;
         const db = Math.hypot(bot.x-ball.x, bot.y-ball.y);
-        const ballNearPlayerGoal = ball.x < FX+FW*.35;
-        const ballNearBotGoal    = ball.x > FX+FW*.65;
+        const ballInOwnHalf   = ball.x > FX+FW*0.5;
+        const ballNearOwnGoal = ball.x > FX+FW*0.72;
+        const ballNearEnemyGoal = ball.x < FX+FW*0.3;
+        const hasBoost = bot.boost > 0.25;
 
-        if(bot.pers==='aggressive'){
-          // Fonce toujours vers la balle pour shooter vers la droite
-          bot.aiState = db < FW*.55 ? 'attack' : 'chase';
-        } else if(bot.pers==='defensive'){
-          // Défend si la balle est près de leur but, sinon chase
-          bot.aiState = ballNearBotGoal ? 'defend' : (db < FW*.5 ? 'chase' : 'wait');
-        } else {
-          // Balanced : attaque si balle dans leur camp
-          bot.aiState = ball.x < FX+FW*.5 ? 'attack' : (db < FW*.45 ? 'chase' : 'position');
+        if(bot.pers === 'aggressive'){
+          if(db < FW*0.65){
+            // Si on est bien placé pour tirer → attaque, sinon chase
+            const angle = Math.atan2(ball.y-bot.y, ball.x-bot.x);
+            const goalAngle = Math.atan2(goalCY-bot.y, botAttackGoalX-bot.x);
+            const angleDiff = Math.abs(angle - goalAngle);
+            bot.aiState = angleDiff < 0.9 ? 'attack' : 'position_to_shoot';
+          } else {
+            bot.aiState = 'chase';
+          }
+        } else if(bot.pers === 'defensive'){
+          if(ballNearOwnGoal && db < FW*0.4){
+            bot.aiState = 'clear';  // dégager en urgence
+          } else if(ballInOwnHalf){
+            bot.aiState = db < FW*0.5 ? 'chase' : 'defend';
+          } else {
+            bot.aiState = db < FW*0.42 ? 'attack' : 'defend';
+          }
+        } else { // balanced
+          if(ballNearOwnGoal && db < FW*0.38){
+            bot.aiState = 'clear';
+          } else if(ball.x < FX+FW*0.55){
+            bot.aiState = db < FW*0.52 ? 'attack' : 'position_to_shoot';
+          } else {
+            bot.aiState = db < FW*0.48 ? 'chase' : 'defend';
+          }
+        }
+
+        // ---- Décision BOOST ----
+        bot.useBoost = false;
+        if(hasBoost){
+          if(bot.aiState==='attack'||bot.aiState==='clear'){
+            // Boost en attaque si on est aligné avec la balle
+            bot.useBoost = db < FW*0.28;
+          } else if(bot.aiState==='chase'){
+            // Boost pour rattraper la balle qui s'éloigne
+            const ballMovingAway = (ball.vx*(ball.x-bot.x)+ball.vy*(ball.y-bot.y)) > 0;
+            bot.useBoost = ballMovingAway && db > FW*0.22;
+          } else if(bot.aiState==='defend'||bot.aiState==='position_to_shoot'){
+            // Parfois boost pour se repositionner vite
+            bot.useBoost = hasBoost && Math.random() < 0.3 && db > FW*0.3;
+          }
         }
       }
 
+      // ---- Calcul position cible ----
       let tx, ty;
-      const ballVelPred = .25 + bi*.06;
+      const predT = 0.22 + bi*0.05;
+      const predBX = Math.max(FX+10, Math.min(FX+FW-10, ball.x + ball.vx*predT*32));
+      const predBY = Math.max(FY+10, Math.min(FY+FH-10, ball.y + ball.vy*predT*32));
 
-      if(bot.aiState==='attack'||bot.aiState==='chase'){
-        // Prédit la position de la balle
-        const predBX = ball.x + ball.vx*ballVelPred*30;
-        const predBY = ball.y + ball.vy*ballVelPred*30;
-        // Se positionne derrière la balle par rapport au but adverse (FX = but gauche = but du joueur)
-        // Les bots tirent vers la GAUCHE donc se placent à DROITE de la balle
-        const toBallX = predBX - botGoalX;
+      if(bot.aiState === 'attack' || bot.aiState === 'position_to_shoot'){
+        // Se place DERRIÈRE la balle par rapport au but ennemi (gauche)
+        // Direction: de la balle vers le but ennemi
+        const toBallX = predBX - botAttackGoalX;
         const toBallY = predBY - goalCY;
-        const toBallLen = Math.sqrt(toBallX*toBallX+toBallY*toBallY)||1;
-        if(bot.aiState==='attack'){
-          // Se place derrière la balle pour la pousser vers le but joueur (gauche)
-          tx = predBX + (toBallX/toBallLen) * (bot.w * 1.2);
-          ty = predBY + (toBallY/toBallLen) * (bot.h * 1.2);
-        } else {
-          tx = predBX;
-          ty = predBY;
+        const toBallLen = Math.sqrt(toBallX*toBallX + toBallY*toBallY) || 1;
+        const offset = bot.aiState==='attack' ? bot.w*1.3 : bot.w*2.0;
+        tx = predBX + (toBallX/toBallLen) * offset;
+        ty = predBY + (toBallY/toBallLen) * offset;
+        // Décalage latéral pour éviter de foncer en ligne droite (plus réaliste)
+        if(bot.aiState==='position_to_shoot'){
+          ty += (bi%2===0?1:-1) * bot.h * 0.5;
         }
-        tx = Math.max(FX+bot.w, Math.min(FX+FW-bot.w, tx));
-        ty = Math.max(FY+bot.h, Math.min(FY+FH-bot.h, ty));
-      } else if(bot.aiState==='defend'){
-        // Revient défendre son but (droite)
-        tx = FX+FW*.82 + bi*18;
-        ty = FY + FH*(0.3 + bi*.2);
-        // Si la balle est proche, fonce dessus
-        if(Math.hypot(bot.x-ball.x, bot.y-ball.y) < FW*.22){ tx=ball.x; ty=ball.y; }
-      } else if(bot.aiState==='wait'||bot.aiState==='position'){
-        // Position stratégique côté bot
-        tx = FX+FW*(.62+bi*.1);
-        ty = FY + FH*(.3+bi*.2);
+      } else if(bot.aiState === 'chase'){
+        tx = predBX;
+        ty = predBY;
+      } else if(bot.aiState === 'clear'){
+        // Fonce sur la balle sans calcul d'angle, but = dégager
+        tx = ball.x;
+        ty = ball.y;
+      } else if(bot.aiState === 'defend'){
+        // Position défensive devant leur propre but
+        const bx = FX+FW*0.80 + bi*22;
+        const by = FY+FH*(0.28 + bi*0.22);
+        // Intercepte si la balle s'approche
+        const ballHeadingToBotGoal = ball.vx > 0 && ball.x > FX+FW*0.55;
+        if(ballHeadingToBotGoal && Math.hypot(bot.x-ball.x,bot.y-ball.y) < FW*0.3){
+          tx = predBX; ty = predBY;
+        } else {
+          tx = bx; ty = by;
+        }
+      } else {
+        tx = FX+FW*(0.60+bi*0.1);
+        ty = FY+FH*(0.28+bi*0.22);
       }
 
-      // Séparation entre bots pour éviter qu'ils se superposent
+      tx = Math.max(FX+bot.w, Math.min(FX+FW-bot.w, tx));
+      ty = Math.max(FY+bot.h, Math.min(FY+FH-bot.h, ty));
+
+      // ---- Séparation (éviter superposition) ----
       let sepX=0, sepY=0;
       g.bots.forEach((o,oi)=>{
-        if(oi===bi)return;
-        const od=Math.hypot(bot.x-o.x, bot.y-o.y);
-        if(od<bot.w*1.8&&od>0){sepX+=(bot.x-o.x)/od*70; sepY+=(bot.y-o.y)/od*70;}
+        if(oi===bi) return;
+        const od = Math.hypot(bot.x-o.x, bot.y-o.y);
+        if(od < bot.w*1.9 && od > 0){ sepX+=(bot.x-o.x)/od*80; sepY+=(bot.y-o.y)/od*80; }
       });
-      // Séparation avec le joueur
-      const pdist=Math.hypot(bot.x-g.player.x, bot.y-g.player.y);
-      if(pdist<bot.w*1.6&&pdist>0){sepX+=(bot.x-g.player.x)/pdist*55;sepY+=(bot.y-g.player.y)/pdist*55;}
+      const pd = Math.hypot(bot.x-g.player.x, bot.y-g.player.y);
+      if(pd < bot.w*1.7 && pd > 0){ sepX+=(bot.x-g.player.x)/pd*60; sepY+=(bot.y-g.player.y)/pd*60; }
 
-      const dx=tx-bot.x, dy=ty-bot.y, dl=Math.sqrt(dx*dx+dy*dy)||1;
-      const diffFactor = bot.pers==='aggressive' ? 1.15 : bot.pers==='defensive' ? 0.88 : 1.0;
-      const bs = SOLO_BSPD * (1+bi*.08) * diffFactor;
-      bot.vx += (dx/dl*bs + sepX)*dt*2.8;
-      bot.vy += (dy/dl*bs + sepY)*dt*2.8;
+      // ---- Mouvement ----
+      const dx = tx-bot.x, dy = ty-bot.y, dl = Math.sqrt(dx*dx+dy*dy)||1;
+      const diffFactor = bot.pers==='aggressive' ? 1.18 : bot.pers==='defensive' ? 0.85 : 1.0;
+
+      // Boost actif
+      const boostActive = bot.useBoost && bot.boost > 0;
+      if(boostActive){ bot.boost = Math.max(0, bot.boost-dt*0.45); }
+      else { bot.boost = Math.min(1, bot.boost+dt*0.16); }
+
+      const bs = SOLO_BSPD * (1+bi*0.07) * diffFactor * (boostActive ? 1.82 : 1.0);
+
+      bot.vx += (dx/dl*bs + sepX)*dt*2.9;
+      bot.vy += (dy/dl*bs + sepY)*dt*2.9;
       bot.vx *= SOLO_FRIC; bot.vy *= SOLO_FRIC;
-      const bv=Math.sqrt(bot.vx*bot.vx+bot.vy*bot.vy);
-      if(bv>bs*1.3){bot.vx=bot.vx/bv*bs*1.3; bot.vy=bot.vy/bv*bs*1.3;}
-      if(bv>8) bot.angle=Math.atan2(bot.vy,bot.vx);
-      bot.x+=bot.vx*dt; bot.y+=bot.vy*dt;
-      bot.x=Math.max(FX+bot.w/2, Math.min(FX+FW-bot.w/2, bot.x));
-      bot.y=Math.max(FY+bot.h/2, Math.min(FY+FH-bot.h/2, bot.y));
-      if(bv>60) bot.trail.push({x:bot.x, y:bot.y, t:.65});
-      bot.trail=bot.trail.filter(t=>{t.t-=dt*4; return t.t>0;});
+      const bv = Math.sqrt(bot.vx*bot.vx + bot.vy*bot.vy);
+      if(bv > bs*1.28){ bot.vx=bot.vx/bv*bs*1.28; bot.vy=bot.vy/bv*bs*1.28; }
+      if(bv > 8) bot.angle = Math.atan2(bot.vy, bot.vx);
+      bot.x += bot.vx*dt; bot.y += bot.vy*dt;
+      bot.x = Math.max(FX+bot.w/2, Math.min(FX+FW-bot.w/2, bot.x));
+      bot.y = Math.max(FY+bot.h/2, Math.min(FY+FH-bot.h/2, bot.y));
+      if(bv > 55 || boostActive) bot.trail.push({x:bot.x, y:bot.y, t: boostActive?0.9:0.55});
+      bot.trail = bot.trail.filter(t=>{ t.t-=dt*4; return t.t>0; });
       ballCollideLocal(bot, g.ball);
     });
     ballCollideLocal(p, g.ball);
@@ -2769,9 +2859,8 @@ window.addEventListener('resize',()=>{ renderMenuCar(); renderGarageCar(); });
 
 function showMobileControls(v){
   const mc=document.getElementById('mobile-controls'); if(!mc) return;
-  // Detect touch more reliably
-  const touch=('ontouchstart' in window)||navigator.maxTouchPoints>0||navigator.msMaxTouchPoints>0||window.matchMedia('(pointer:coarse)').matches;
-  if(v&&touch) mc.classList.add('ingame'); else mc.classList.remove('ingame');
+  if(v) mc.classList.add('ingame'); else mc.classList.remove('ingame');
+  // CSS media queries (pointer:fine/coarse) handle the actual visibility
 }
 
 </script>
